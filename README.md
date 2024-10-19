@@ -1,126 +1,41 @@
-# Template for a Python Library
-<img src="assets/logo.svg" align="right" width="25%"/>
+# Mongo Analyser
 
-[![Tests](https://github.com/habedi/template-python-library/actions/workflows/tests.yml/badge.svg)](https://github.com/habedi/template-python-library/actions/workflows/tests.yml)
-[![PyPI version](https://badge.fury.io/py/template-python-library-placeholder.svg)](https://badge.fury.io/py/template-python-library-placeholder)
-[![License](https://img.shields.io/github/license/habedi/template-python-library)](https://github.com/habedi/template-python-library/blob/main/LICENSE)
-[![Python version](https://img.shields.io/badge/Python-%3E=3.10-blue)](https://github.com/habedi/template-python-library)
-[![Pip downloads](https://img.shields.io/pypi/dm/template-python-library-placeholder.svg)](https://pypi.org/project/template-python-library-placeholder)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![CodeFactor](https://www.codefactor.io/repository/github/habedi/template-python-library/badge)](https://www.codefactor.io/repository/github/habedi/template-python-library)
+<img src="https://github.com/habedi/mongo-analyser/blob/main/assets/logo_v1.png" align="right" width="25%"/>
 
-This is a template repository to make it easier to start developing Python libraries. The repository includes the basic
-structure for a Python library, including the code for a dummy package, unit tests, and GitHub Actions workflows for
-running tests and deploying the library to PyPI.
+[![Tests](https://github.com/habedi/mongo-analyser/actions/workflows/tests.yml/badge.svg)](https://github.com/habedi/mongo-analyser/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/habedi/mongo-analyser/graph/badge.svg?token=HOTAZKP3V7)](https://codecov.io/gh/habedi/mongo-analyser)
+[![PyPI version](https://badge.fury.io/py/mongo-analyser.svg)](https://badge.fury.io/py/mongo-analyser)
+[![License](https://img.shields.io/github/license/habedi/mongo-analyser)](https://github.com/habedi/mongo-analyser/blob/main/LICENSE)
+[![Python version](https://img.shields.io/badge/Python-%3E=3.9-blue)](https://github.com/habedi/mongo-analyser)
+[![Pip downloads](https://img.shields.io/pypi/dm/mongo-analyser.svg)](https://pypi.org/project/mongo-analyser)
+[![Documentation](https://img.shields.io/badge/docs-latest-green)](https://github.com/habedi/mongo-analyser/blob/main/docs/index.md)
+[![CodeFactor](https://www.codefactor.io/repository/github/habedi/mongo-analyser/badge)](https://www.codefactor.io/repository/github/habedi/mongo-analyser)
 
-As said above, I've created this template to make it easier to create new Python libraries. I hope you find it useful
-as well. If you have any suggestions or improvements, feel free to open an issue or a pull request.
+Mongo Analyser is a tool that helps you to analyse the structure of a MongoDB collection. It can help you extract the
+schema of a collection, find the data types of the fields, and also extract sample data from the collection based on the
+schema.
 
-## Getting Started
+Mongo Analyser can be used as a command-line tool or as a Python library.
 
-To get started with this template, you can click on the `Use this template` button at the top of the repository. This
-will create a new repository with the same structure as this one. You can then clone the repository to your local
-machine and start developing your own Python library.
+## Installation
 
-### Installing Poetry
-
-We will use [Poetry](https://python-poetry.org/) to manage the dependencies and the Python virtual environment. To
-get started, you need to install Poetry on your machine. We can install Poetry by running the following command in the
-command line using pip.
+You can install Mongo Analyser using pip (mainly to use it as a library):
 
 ```bash
-pip install poetry
+pip install mongo-analyser
 ```
 
-When the installation is finished, run the following command in the shell in the root folder of this repository to
-install the dependencies, and create a virtual environment we can use for development.
+You can also install it as a standalone executable using pipx:
 
 ```bash
-poetry install
+pipx install mongo-analyser
 ```
 
-After that, enter the Poetry environment by invoking the poetry shell command.
+After installing it using pipx, you can run it from the command line:
 
 ```bash
-poetry shell
+mongo-analyser <command> [<args>]
 ```
 
-### Unit Tests and Code Coverage
-
-We use [pytest](https://docs.pytest.org/en/stable/) to run the tests. To run the tests with code coverage, you can
-run the following command in the shell.
-
-```bash
-poetry run pytest tests/ --cov
-```
-
-You can edit the entries under `[tool.pytest.ini_options]` in the `pyproject.toml` file to configure pytest behaviour.
-You can also edit the `.coveragerc` file to configure the coverage report generation.
-
-### Building and Publishing
-
-As said before, we use Poetry to manage the dependencies and virtual environment. To build the pip package, you can
-run
-the following command in the shell.
-
-```bash
-poetry build
-```
-
-This command will create a `dist` folder in the root directory, which contains the built version of the
-library. To publish the library to PyPI, you can run the following command in the shell.
-
-```bash
-poetry publish
-```
-
-Note that you need to have a PyPI account and a valid API token to publish the library on PyPI. You can find more
-information
-about
-publishing pip packages to PyPI in the [Poetry documentation](https://python-poetry.org/docs/repositories/).
-
-### Files and Folders
-
-The main files and folders in this repository are:
-
-- `.github`: Contains the GitHub Actions workflows for running tests and deploying the built version of the library to
-  PyPI.
-- `assets`: Contains the asset files for the library, like images, logos, etc.
-- `docs`: Contains the documentation for the library.
-- `src`: Includes the source code for the library. You can create multiple packages and modules in this folder. The
-  `src/package` folder contains a dummy package with a dummy class and method.
-- `tests`: Contains the unit tests for the functions and methods in the library.
-- `.editorconfig`: Configuration file for the code editor settings for consistent coding style.
-- `.gitignore`: Python-specific gitignore file to exclude the files generated by Python and Poetry.
-- `.gitattributes`: Configuration file for Git LFS.
-- `LICENSE`: The license file for the library.
-- `pyproject.toml`: The configuration file for Poetry, which manages the dependencies and virtual environment.
-
-### Example
-
-Here is an example of how you can use the code in the library after building and installing it as a pip package.
-
-```python
-from src.package.module import DummyClass
-
-dummy = DummyClass()
-
-print(dummy.dummy_method())
-```
-
-Before running the code, you need to install the library in the current environment. You can use Poetry to do this by
-running the following commands in the shell.
-
-```bash
-poetry build
-poetry install
-```
-
-### Notes
-
-- To publish the library to PyPI, you need to have a PyPI account and a valid API token. You can find more
-  information about publishing pip packages to PyPI in
-  the [Poetry documentation](https://python-poetry.org/docs/repositories/).
-- To run the `.github/workflows/publish_to_pypi.yml` workflow, you need to set the `PYPI_API_TOKEN` secret for
-  the repository. You can find more information about repository secrets in the
-  [GitHub documentation](https://docs.github.com/en/actions/reference/encrypted-secrets).
+See the [documentation](https://github.com/habedi/mongo-analyser/blob/main/docs/index.md) for more information and
+examples.

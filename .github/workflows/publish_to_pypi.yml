@@ -20,7 +20,7 @@ jobs:
       - name: Set Up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Install Poetry
         run: |
@@ -33,6 +33,26 @@ jobs:
       #      - name: Update Version
       #        run: |
       #          poetry version patch # Use 'minor' or 'major' for minor or major version bumps
+
+      #      - name: Build Package
+      #        run: |
+      #          poetry build
+
+      # Automatically create a new tag for the release
+      #      - name: Create Tag
+      #        run: |
+      #          VERSION=$(poetry version -s)  # Get version from pyproject.toml
+      #          git config user.name "github-actions"
+      #          git config user.email "github-actions@github.com"
+      #          git tag v$VERSION
+      #          git push origin v$VERSION
+
+      #      - name: Upload Release Asset
+      #        uses: softprops/action-gh-release@v2 # Uploads the wheel files to the GitHub release
+      #        with:
+      #          files: dist/*.whl
+      #        env:
+      #          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Publish Package
         run: |

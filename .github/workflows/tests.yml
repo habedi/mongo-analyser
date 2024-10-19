@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         # Define the Python versions to test against
-        python-version: [ "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
 
     steps:
       - name: Checkout Repository
@@ -30,9 +30,19 @@ jobs:
 
       - name: Run Tests with Coverage
         run: |
-          poetry run pytest tests/ --doctest-modules --cov=src --cov-report xml --cov-report html \
+          poetry run pytest tests/ --doctest-modules --cov=mongo_analyser/ --cov-report xml \
           --junitxml=junit/test-results-${{ matrix.python-version }}.xml
         continue-on-error: false
+
+        # Upload results to Codecov
+      - name: Upload results to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false # Don't fail the CI if the upload fails
 
       - name: Upload Test Results and Coverage Reports
         uses: actions/upload-artifact@v4

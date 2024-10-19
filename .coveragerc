@@ -7,7 +7,7 @@ omit =
 
 # Include source files only from certain directories
 source =
-    src/
+    mongo_analyser/
 
 # Set parallel to true if you run tests in parallel
 parallel = True

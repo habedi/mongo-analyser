@@ -6,5 +6,5 @@ digraph G {
     node [style = filled, fontcolor = black, shape = box];
 
 // Logo element as a square box with a nicer color
-    logo_title [label = "Logo" shape = box fontcolor = black style = filled color = "#a8e6cf" width = 2.0 height = 2.0 fixedsize = true];
+    logo_title [label = "Mongo Analyser" shape = box fontcolor = black style = filled color = "#a8e6cf" width = 2.0 height = 2.0 fixedsize = true];
 }
