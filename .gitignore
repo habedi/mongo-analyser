@@ -79,3 +79,4 @@ poetry.lock
 *.gz
 *.xlsx
 *.zip
+*.cast

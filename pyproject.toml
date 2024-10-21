@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "mongo-analyser"
-version = "0.1.4"
-description = "A minimalistic tool for analysing and extracting the schema of a MongoDB collection."
+version = "0.1.6"
+description = "A tool for analysing and extracting the schemas of MongoDB collections"
 authors = ["Hassan Abedi <hassan.abedi.t@gmail.com>"]
 maintainers = ["Hassan Abedi <hassan.abedi.t@gmail.com>"]
 license = "MIT"
 readme = "README.md"
-include = ["README.md", "LICENSE"]
+include = ["README.md"]
 packages = [{ include = "mongo_analyser", from = "." }]
 repository = "https://github.com/habedi/mongo-analyser"
 documentation = "https://github.com/habedi/mongo-analyser/blob/main/docs/index.md"
@@ -20,15 +20,16 @@ keywords = ["mongodb", "python", "nosql", "command-line tool", "json"]
 [tool.poetry.dependencies]
 python = "^3.9"
 pymongo = "^4.10.1"
-pytz = "^2024.2"
+pytz = "^2025.1"
 
+# Development dependencies (needs `--with dev` flag)
 [tool.poetry.dev-dependencies]
+poetry-dynamic-versioning = "^1.4.0"
 pytest = "^8.0.1"
-pytest-cov = "^5.0.0"
+pytest-cov = "^6.0.0"
 pytest-mock = "^3.14.0"
 mypy = "^1.11.1"
-poetry-dynamic-versioning = "^1.4.0"
-ruff = "^0.7.0"
+ruff = "^0.9.9"
 
 [tool.poetry.scripts]
 mongo_analyser = "mongo_analyser.cli:main"
@@ -39,6 +40,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 pythonpath = [".", "mongo_analyser"]
+addopts = "tests/ --cov --doctest-modules --cov-report=xml -s"
 
 [tool.mypy]
 python_version = "3.9"
@@ -75,7 +77,10 @@ exclude = [
     "build",
     "dist",
     "node_modules",
-    "venv"
+    "venv",
+    # Exclude the following extra directories
+    "tests",
+    "docs",
 ]
 line-length = 100
 indent-width = 4
@@ -85,12 +90,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["ANN", "D", "E", "F", "I"]
 ignore = [
-    "ANN101", # Don't annotate self
-    "ANN102"  # Don't annotate cls
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
 ]
 fixable = ["ALL"]
 unfixable = []
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"  # Ignore dummy variables
 
 [tool.ruff.format]
 quote-style = "double"

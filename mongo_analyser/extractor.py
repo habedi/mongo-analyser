@@ -68,8 +68,9 @@ class DataExtractor(BaseAnalyser):
         return field_types
 
     @staticmethod
-    def convert_to_json_compatible(document: dict, schema: dict,
-                                   tz: Union[pytz.timezone, None]) -> dict:
+    def convert_to_json_compatible(
+        document: dict, schema: dict, tz: Union[pytz.timezone, None]
+    ) -> dict:
         """Converts a MongoDB document to a JSON-compatible format based on the given schema."""
 
         def convert_value(key: str, value: any, value_type: Union[str, None] = None) -> any:
@@ -96,10 +97,10 @@ class DataExtractor(BaseAnalyser):
                 elif value_type == "empty":
                     return None
                 elif value_type == "binary":
-                    return value.hex() if hasattr(value, 'hex') else str(value)
+                    return value.hex() if hasattr(value, "hex") else str(value)
                 else:
                     try:
-                        return value.hex() if hasattr(value, 'hex') else str(value)
+                        return value.hex() if hasattr(value, "hex") else str(value)
                     except AttributeError:
                         return str(value)
             except Exception as e:
@@ -113,16 +114,19 @@ class DataExtractor(BaseAnalyser):
         for key, value_schema in schema.items():
             if key in document:
                 if isinstance(value_schema, dict):
-                    if 'type' in value_schema and not isinstance(value_schema['type'], dict):
-                        if value_schema['type'].startswith('array'):
-                            array_element_type = value_schema['type'].split('<')[1].strip('>')
-                            result[key] = [convert_value(key, item, array_element_type) for item in
-                                           document[key]]
+                    if "type" in value_schema and not isinstance(value_schema["type"], dict):
+                        if value_schema["type"].startswith("array"):
+                            array_element_type = value_schema["type"].split("<")[1].strip(">")
+                            result[key] = [
+                                convert_value(key, item, array_element_type)
+                                for item in document[key]
+                            ]
                         else:
-                            result[key] = convert_value(key, document[key], value_schema['type'])
+                            result[key] = convert_value(key, document[key], value_schema["type"])
                     else:
-                        result[key] = DataExtractor.convert_to_json_compatible(document[key],
-                                                                               value_schema, tz)
+                        result[key] = DataExtractor.convert_to_json_compatible(
+                            document[key], value_schema, tz
+                        )
                 else:
                     result[key] = None
             else:
@@ -130,9 +134,16 @@ class DataExtractor(BaseAnalyser):
         return result
 
     @staticmethod
-    def extract_data(mongo_uri: str, db_name: str, collection_name: str, schema: dict,
-                     output_file: Union[str, Path], tz: Union[None, pytz.timezone],
-                     batch_size: int, limit: int) -> None:
+    def extract_data(
+        mongo_uri: str,
+        db_name: str,
+        collection_name: str,
+        schema: dict,
+        output_file: Union[str, Path],
+        tz: Union[None, pytz.timezone],
+        batch_size: int,
+        limit: int,
+    ) -> None:
         """Extracts data from MongoDB and exports it to a compressed JSON file."""
 
         # Connect to MongoDB
@@ -151,9 +162,10 @@ class DataExtractor(BaseAnalyser):
             print("Reading all records from the collection...")
 
         # Convert and store documents as per the schema
-        converted_data = [DataExtractor.convert_to_json_compatible(doc, schema, tz) for doc in
-                          data_cursor]
+        converted_data = [
+            DataExtractor.convert_to_json_compatible(doc, schema, tz) for doc in data_cursor
+        ]
 
         # Write data to compressed JSON file
-        with gzip.open(output_file, 'wt', encoding="utf-8") as f:
+        with gzip.open(output_file, "wt", encoding="utf-8") as f:
             json.dump(converted_data, f, indent=4)
