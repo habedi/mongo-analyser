@@ -23,10 +23,10 @@ mongo_analyser <command> --help # or -h
 
 ## Python Interface
 
-See the [examples](examples/) directory for examples on how to use the Mongo Analyser as a Python library.
+See the [examples](examples/) directory for example code snippets on how to use Mongo Analyser as a Python library.
 
 ## Notes
 
 - At the moment, Mongo Analyser does not support arrays of objects with different types. Such arrays will be treated as
   arrays of objects with a single type. For example, if an array contains both integers and strings, it will be treated
-  as either an array of integers or an array of strings, depending on the majority type.
+  as either an array of integers or an array of strings.
