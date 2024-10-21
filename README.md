@@ -1,6 +1,6 @@
 # Mongo Analyser
 
-<img src="assets/logo_v1.png" align="right" width="25%"/>
+<img src="assets/logo-v1.png" align="right" width="25%"/>
 
 [![Tests](https://github.com/habedi/mongo-analyser/actions/workflows/tests.yml/badge.svg)](https://github.com/habedi/mongo-analyser/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/habedi/mongo-analyser/graph/badge.svg?token=HOTAZKP3V7)](https://codecov.io/gh/habedi/mongo-analyser)
@@ -39,3 +39,7 @@ After the installation is complete, you can use the `mongo-analyser` command in 
 
 See the [documentation](https://github.com/habedi/mongo-analyser/blob/main/docs/index.md) for more information and
 examples.
+
+## Demo
+
+[![asciicast](https://asciinema.org/a/682346.svg)](https://asciinema.org/a/682346)

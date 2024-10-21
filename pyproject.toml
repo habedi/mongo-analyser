@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mongo-analyser"
-version = "0.1.4"
+version = "0.1.5"
 description = "A minimalistic tool for analysing and extracting the schema of a MongoDB collection."
 authors = ["Hassan Abedi <hassan.abedi.t@gmail.com>"]
 maintainers = ["Hassan Abedi <hassan.abedi.t@gmail.com>"]
