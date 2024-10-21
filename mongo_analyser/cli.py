@@ -70,8 +70,9 @@ def print_custom_help(parser, subparsers):
 
 
 def main():
-    analyse_schema_description = 'Analyse the structure of a MongoDB collection and infer schema and statistics from a sample of documents'
-    extract_data_description = 'Extract data from MongoDB and store it to a compressed JSON file'
+    analyse_schema_description = ('Analyse the structure of a MongoDB collection and infer schema '
+                                  'and statistics from a sample of documents')
+    extract_data_description = 'Extract data from MongoDB and store it in a compressed JSON file'
 
     # Create the top-level parser
     parser = argparse.ArgumentParser(
