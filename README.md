@@ -1,15 +1,15 @@
 ## Mongo Analyser
 
-[![Tests](https://img.shields.io/github/actions/workflow/status/habedi/mongo-analyser/tests.yml?label=tests)](https://github.com/habedi/mongo-analyser/actions/workflows/tests.yml)
-[![Lint](https://img.shields.io/github/actions/workflow/status/habedi/mongo-analyser/lints.yml?label=lints)](https://github.com/habedi/mongo-analyser/actions/workflows/lints.yml)
-[![codecov](https://codecov.io/gh/habedi/mongo-analyser/graph/badge.svg?token=HOTAZKP3V7)](https://codecov.io/gh/habedi/mongo-analyser)
-[![CodeFactor](https://www.codefactor.io/repository/github/habedi/mongo-analyser/badge)](https://www.codefactor.io/repository/github/habedi/mongo-analyser)
-[![PyPI version](https://badge.fury.io/py/mongo-analyser.svg)](https://badge.fury.io/py/mongo-analyser)
-[![Pip downloads](https://img.shields.io/pypi/dm/mongo-analyser.svg)](https://pypi.org/project/mongo-analyser)
+[![Tests](https://img.shields.io/github/actions/workflow/status/habedi/mongo-analyser/tests.yml?label=tests&style=flat&labelColor=555555&logo=github)](https://github.com/habedi/mongo-analyser/actions/workflows/tests.yml)
+[![Linters](https://img.shields.io/github/actions/workflow/status/habedi/mongo-analyser/lints.yml?label=lints&style=flat&labelColor=555555&logo=github)](https://github.com/habedi/mongo-analyser/actions/workflows/lints.yml)
+[![Code Coverage](https://img.shields.io/codecov/c/github/habedi/mongo-analyser?style=flat&labelColor=555555&logo=codecov)](https://codecov.io/gh/habedi/mongo-analyser)
+[![Code Quality](https://img.shields.io/codefactor/grade/github/habedi/mongo-analyser?style=flat&labelColor=555555&logo=codefactor)](https://www.codefactor.io/repository/github/habedi/mongo-analyser)
+[![PyPI](https://img.shields.io/pypi/v/mongo-analyser.svg?style=flat&labelColor=555555&logo=pypi)](https://pypi.org/project/mongo-analyser)
+[![Downloads](https://img.shields.io/pypi/dm/mongo-analyser.svg?style=flat&labelColor=555555&logo=pypi)](https://pypi.org/project/mongo-analyser)
+[![Python](https://img.shields.io/badge/python-%3E=3.9-3776ab?style=flat&labelColor=555555&logo=python)](https://github.com/habedi/mongo-analyser)
 <br>
-[![Python version](https://img.shields.io/badge/Python-%3E=3.9-blue?)](https://github.com/habedi/mongo-analyser)
-[![Documentation](https://img.shields.io/badge/docs-latest-blue)](https://github.com/habedi/mongo-analyser/blob/main/docs/README.md)
-[![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/habedi/mongo-analyser/blob/main/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-latest-3776ab?style=flat&labelColor=555555&logo=readthedocs)](https://github.com/habedi/mongo-analyser/blob/main/docs/README.md)
+[![License](https://img.shields.io/badge/license-MIT-007ec6?style=flat&labelColor=555555&logo=open-source-initiative)](https://github.com/habedi/mongo-analyser/blob/main/LICENSE)
 
 Mongo Analyser is a Python library and command-line tool that can help people analyze and infer the schemas
 of MongoDB collections.
