@@ -1,8 +1,11 @@
-name: Tests
+name: Run Tests
 
 on:
-  workflow_dispatch: # Only enable manual runs for now
-  workflow_call: # Make this workflow available to be called by other workflows
+  workflow_dispatch: # Enable manual runs
+  workflow_call: # Make this workflow callable from other workflows
+  push:
+    tags:
+      - "v*" # Run on tagged commits
 
 jobs:
   build:
@@ -22,32 +25,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # Install Poetry and Dependencies and run tests with coverage and upload test results and coverage reports as artifacts
       - name: Install Poetry and Dependencies
         run: |
           pip install poetry
           poetry install
 
-      - name: Run Tests with Coverage
+      - name: Run the Tests with Coverage
         run: |
-          poetry run pytest tests/ --doctest-modules --cov=mongo_analyser/ --cov-report xml \
-          --junitxml=junit/test-results-${{ matrix.python-version }}.xml
+          poetry run pytest
         continue-on-error: false
 
-        # Upload results to Codecov
-      - name: Upload results to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Upload Coverage Reports to Codecov
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false # Don't fail the CI if the upload fails
-
-      - name: Upload Test Results and Coverage Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-and-coverage-${{ matrix.python-version }}
-          path: |
-            junit/test-results-${{ matrix.python-version }}.xml
-            htmlcov/
