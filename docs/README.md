@@ -1,33 +1,34 @@
-# Mongo Analyser Documentation
+## Mongo Analyser Documentation
 
-Mongo Analyser consists of a command-line tool and a Python library that helps you analyse the structure of a MongoDB
-collection and extract data from it.
+Mongo Analyser consists of a command-line tool and a Python library that helps you get insights into the
+structure of your MongoDB collections.
 
-## Command-Line Interface
+### Command-line Interface
 
-Mongo Analyser can be used as a command-line tool. The general interface for the command-line tool is:
+The general usage of the command-line tool is as follows:
 
 ```bash
 Usage: mongo_analyser <command> [<args>]
+````
 
-Commands:
-  analyse_schema  Analyse the structure of a MongoDB collection and infer schema and statistics from a sample of documents
-  extract_data    Extract data from MongoDB and store it to a compressed JSON file
-```
+Supported commands:
 
-Run the following command to get help on a specific command:
+- analyse_schema
+- extract_data
+
+You can get help for each command using the `--help` or `-h` flag:
 
 ```bash
 mongo_analyser <command> --help # or -h
 ```
 
-## Python Interface
+### Python Interface
 
-See the [examples](examples/) directory for example code snippets on how to use Mongo Analyser as a Python library.
+See the [examples](examples) directory to see how to use Mongo Analyser as a Python library.
 
-## Supported Field Types
+### Supported Field Types
 
-Mongo Analyser supports the following field types:
+Mongo Analyser supports the following field types when inferring the schema of a MongoDB collection:
 
 | Field Type         | Python Equivalent | MongoDB Equivalent   | Comments                                                                                                                                      |
 |--------------------|-------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
@@ -43,9 +44,9 @@ Mongo Analyser supports the following field types:
 | `binary<UUID>`     | `bytes`           | `binary (subtype 4)` | The UUID is stored as a 16-byte binary value                                                                                                  |
 | `binary<MD5>`      | `bytes`           | `binary (subtype 5)` | The MD5 hash is stored as a 16-byte binary value                                                                                              |
 | `binary<ObjectId>` | `bytes`           | `objectId`           | The ObjectId is stored as a 12-byte binary value                                                                                              |
-                                                                                             
-## Notes
 
-- At the moment, Mongo Analyser does not support arrays of objects with different types. Such arrays will be treated as
-  arrays of objects with a single type. For example, if an array contains both integers and strings, it will be treated
-  as either an array of integers or an array of strings.
+> [!IMPORTANT]
+> Currently, Mongo Analyser does not support arrays of objects with different types.
+> Such arrays will be treated as arrays of objects with a single type.
+> For example, if an array contains both integers and strings, it will be treated as either an array of integers or an
+> array of strings.

@@ -11,7 +11,7 @@ class BaseAnalyser:
         1: "binary<function>",
         3: "binary<UUID (legacy)>",
         4: "binary<UUID>",
-        5: "binary<MD5>"
+        5: "binary<MD5>",
     }
 
     @staticmethod
@@ -19,17 +19,20 @@ class BaseAnalyser:
         """Helper function to convert string to boolean value for argparse."""
         if isinstance(v, bool):
             return v
-        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        if v.lower() in ("yes", "true", "t", "y", "1"):
             return True
-        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        elif v.lower() in ("no", "false", "f", "n", "0"):
             return False
         else:
-            raise argparse.ArgumentTypeError('Boolean value expected (like true/false or 1/0).')
+            raise argparse.ArgumentTypeError("Boolean value expected (like true/false or 1/0).")
 
     @staticmethod
     def build_mongo_uri(
-        host: str, port: Union[str, int], username: Union[str, None] = None,
-        password: Union[str, None] = None) -> str:
+        host: str,
+        port: Union[str, int],
+        username: Union[str, None] = None,
+        password: Union[str, None] = None,
+    ) -> str:
         """Builds a MongoDB URI from host, port, and optional credentials."""
         if username and password:
             return f"mongodb://{username}:{password}@{host}:{port}/"
@@ -43,6 +46,7 @@ class BaseAnalyser:
         """
         binary_subtype = value.subtype
 
-        subtype_str = BaseAnalyser.binary_type_map.get(binary_subtype,
-                                                       f"binary<subtype {binary_subtype}>")
+        subtype_str = BaseAnalyser.binary_type_map.get(
+            binary_subtype, f"binary<subtype {binary_subtype}>"
+        )
         schema[full_key] = {"type": f"array<{subtype_str}>" if is_array else subtype_str}

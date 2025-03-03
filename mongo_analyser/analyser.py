@@ -20,9 +20,12 @@ class SchemaAnalyser(BaseAnalyser):
     """
 
     @staticmethod
-    def extract_schema_and_stats(document: dict, schema: Union[dict, OrderedDict, None] = None,
-                                 stats: Union[dict, OrderedDict, None] = None,
-                                 prefix: str = "") -> tuple:
+    def extract_schema_and_stats(
+        document: dict,
+        schema: Union[dict, OrderedDict, None] = None,
+        stats: Union[dict, OrderedDict, None] = None,
+        prefix: str = "",
+    ) -> tuple:
         """Extracts schema and statistics from a MongoDB document."""
         if schema is None:
             schema = OrderedDict()
@@ -49,9 +52,12 @@ class SchemaAnalyser(BaseAnalyser):
         return schema, stats
 
     @staticmethod
-    def handle_array(value: list, schema: Union[dict, OrderedDict],
-                     stats: Union[dict, OrderedDict],
-                     full_key: str) -> None:
+    def handle_array(
+        value: list,
+        schema: Union[dict, OrderedDict],
+        stats: Union[dict, OrderedDict],
+        full_key: str,
+    ) -> None:
         """Handles the extraction of array data from a BSON document."""
 
         # Initialize the schema dictionary for the full_key if it doesn't exist
@@ -72,9 +78,11 @@ class SchemaAnalyser(BaseAnalyser):
             elif isinstance(first_elem, bool):
                 schema[full_key] = {"type": "array<bool>"}
             elif isinstance(first_elem, int):
-                schema[full_key] = {"type": "array<int32>"
-                if isinstance(first_elem, int) and
-                   not isinstance(first_elem, Int64) else "array<int64>"}
+                schema[full_key] = {
+                    "type": "array<int32>"
+                    if isinstance(first_elem, int) and not isinstance(first_elem, Int64)
+                    else "array<int64>"
+                }
             elif isinstance(first_elem, float):
                 schema[full_key] = {"type": "array<double>"}
             else:
@@ -99,8 +107,9 @@ class SchemaAnalyser(BaseAnalyser):
         stats[full_key]["values"].add(hashable_value)
 
     @staticmethod
-    def handle_simple_value(value: any, schema: Union[dict, OrderedDict],
-                            stats: Union[dict, OrderedDict], full_key: str) -> None:
+    def handle_simple_value(
+        value: any, schema: Union[dict, OrderedDict], stats: Union[dict, OrderedDict], full_key: str
+    ) -> None:
         """Handles the extraction of primary data types from a BSON document."""
         if isinstance(value, ObjectId):
             schema[full_key] = {"type": "binary<ObjectId>"}
@@ -111,8 +120,11 @@ class SchemaAnalyser(BaseAnalyser):
         elif isinstance(value, bool):
             schema[full_key] = {"type": "bool"}
         elif isinstance(value, int):
-            schema[full_key] = {"type": "int32" if isinstance(value, int) and
-                                                   not isinstance(value, Int64) else "int64"}
+            schema[full_key] = {
+                "type": "int32"
+                if isinstance(value, int) and not isinstance(value, Int64)
+                else "int64"
+            }
         elif isinstance(value, float):
             schema[full_key] = {"type": "double"}
         elif isinstance(value, Decimal128):
@@ -136,8 +148,9 @@ class SchemaAnalyser(BaseAnalyser):
 
     # Function to infer schema and statistics from sample documents with batch processing
     @staticmethod
-    def infer_schema_and_stats(collection: Collection, sample_size: int,
-                               batch_size: int = 10000) -> tuple:
+    def infer_schema_and_stats(
+        collection: Collection, sample_size: int, batch_size: int = 10000
+    ) -> tuple:
         """Infers the schema of a MongoDB collection using a sample of documents."""
         schema = OrderedDict()
         stats = OrderedDict()
@@ -147,8 +160,9 @@ class SchemaAnalyser(BaseAnalyser):
         if sample_size < 0:
             documents = collection.find().batch_size(batch_size)
         else:
-            documents = collection.aggregate([{'$sample': {'size': sample_size}}]).batch_size(
-                batch_size)
+            documents = collection.aggregate([{"$sample": {"size": sample_size}}]).batch_size(
+                batch_size
+            )
 
         for doc in documents:
             total_docs += 1
@@ -165,7 +179,7 @@ class SchemaAnalyser(BaseAnalyser):
             missing_percentage = (missing_count / total_docs) * 100 if total_docs > 0 else 0
             final_stats[key] = {
                 "cardinality": cardinality,
-                "missing_percentage": missing_percentage
+                "missing_percentage": missing_percentage,
             }
 
         sorted_schema = OrderedDict(sorted(schema.items()))
@@ -180,54 +194,56 @@ class SchemaAnalyser(BaseAnalyser):
 
         def draw_separator(sep_type):
             parts = {
-                'top': ('┌', '┬', '┐'),
-                'mid': ('├', '┼', '┤'),
-                'bottom': ('└', '┴', '┘'),
-                'line': '─'
+                "top": ("┌", "┬", "┐"),
+                "mid": ("├", "┼", "┤"),
+                "bottom": ("└", "┴", "┘"),
+                "line": "─",
             }
             start, sep, end = parts[sep_type]
-            separator = start + sep.join([parts['line'] * (w + 2) for w in col_widths]) + end
+            separator = start + sep.join([parts["line"] * (w + 2) for w in col_widths]) + end
             print(separator)
 
         def draw_row(items):
-            row = "│ " + " │ ".join(
-                f"{str(item):<{w}}" for item, w in zip(items, col_widths)) + " │"
+            row = (
+                "│ " + " │ ".join(f"{str(item):<{w}}" for item, w in zip(items, col_widths)) + " │"
+            )
             print(row)
 
-        draw_separator('top')
+        draw_separator("top")
         draw_row(headers)
-        draw_separator('mid')
+        draw_separator("mid")
         for row in rows:
             draw_row(row)
-        draw_separator('bottom')
+        draw_separator("bottom")
 
     @staticmethod
     def schema_to_hierarchical(schema: dict) -> dict:
         """Converts a flat schema to a hierarchical schema."""
         hierarchical_schema = {}
         for field, details in schema.items():
-            parts = field.split('.')
+            parts = field.split(".")
             current_level = hierarchical_schema
             for part in parts[:-1]:
                 if part not in current_level:
                     current_level[part] = {}
                 current_level = current_level[part]
-            current_level[parts[-1]] = {"type": details['type']}
+            current_level[parts[-1]] = {"type": details["type"]}
         return hierarchical_schema
 
     @staticmethod
     def save_schema_to_json(schema: dict, schema_file: Union[str, Path]) -> None:
         """Saves the schema to a JSON file."""
         hierarchical_schema = SchemaAnalyser.schema_to_hierarchical(schema)
-        with io.open(schema_file, 'w') as f:
+        with io.open(schema_file, "w") as f:
             json.dump(hierarchical_schema, f, indent=4)
         print(f"Schema has been saved to {schema_file}")
 
     @staticmethod
-    def save_table_to_csv(headers: List[str], rows: List[List[str]],
-                          csv_file: Union[str, Path]) -> None:
+    def save_table_to_csv(
+        headers: List[str], rows: List[List[str]], csv_file: Union[str, Path]
+    ) -> None:
         """Writes the rows to a CSV file with the provided headers."""
-        with open(csv_file, mode='w', newline='') as file:
+        with open(csv_file, mode="w", newline="") as file:
             writer = csv.writer(file)
             writer.writerow(headers)
             writer.writerows(rows)
