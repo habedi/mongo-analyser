@@ -4,9 +4,9 @@ import json
 import uuid
 from collections import OrderedDict
 from pathlib import Path
-from typing import Union, List
+from typing import List, Union
 
-from bson import ObjectId, Binary, Int64, Decimal128
+from bson import Binary, Decimal128, Int64, ObjectId
 from pymongo import MongoClient
 from pymongo.synchronous.collection import Collection
 
@@ -204,9 +204,7 @@ class SchemaAnalyser(BaseAnalyser):
             print(separator)
 
         def draw_row(items):
-            row = (
-                "│ " + " │ ".join(f"{str(item):<{w}}" for item, w in zip(items, col_widths)) + " │"
-            )
+            row = "│ " + " │ ".join(f"{item!s:<{w}}" for item, w in zip(items, col_widths)) + " │"
             print(row)
 
         draw_separator("top")
