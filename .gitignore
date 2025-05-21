@@ -84,3 +84,4 @@ site/
 *.xlsx
 *.zip
 *.cast
+*.env
