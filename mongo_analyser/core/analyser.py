@@ -1,32 +1,43 @@
 import csv
-import io
 import json
+import logging
 import uuid
 from collections import OrderedDict
 from pathlib import Path
-from typing import List, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from bson import Binary, Decimal128, Int64, ObjectId
-from pymongo import MongoClient
-from pymongo.synchronous.collection import Collection
+from pymongo.errors import (
+    ConnectionFailure as PyMongoConnectionFailure,
+)
+from pymongo.errors import (
+    OperationFailure as PyMongoOperationFailure,
+)
+from pymongo.synchronous.collection import Collection as PyMongoCollection
 
-from .shared import BaseAnalyser
+from . import db as db_manager
+from . import shared
+
+logger = logging.getLogger(__name__)
 
 
-class SchemaAnalyser(BaseAnalyser):
-    """
-    This class provides functions to infer the schema of a MongoDB collection and save it to a JSON
-    file. It also generates a table with statistics about the values of each field in the collection.
-    """
+class SchemaAnalyser:
+    @staticmethod
+    def _make_hashable(item: Any) -> Any:
+        if isinstance(item, dict):
+            return frozenset((k, SchemaAnalyser._make_hashable(v)) for k, v in item.items())
+        elif isinstance(item, list):
+            return tuple(SchemaAnalyser._make_hashable(i) for i in item)
+        else:
+            return item
 
     @staticmethod
     def extract_schema_and_stats(
-        document: dict,
-        schema: Union[dict, OrderedDict, None] = None,
-        stats: Union[dict, OrderedDict, None] = None,
+        document: Dict,
+        schema: Union[Dict, OrderedDict, None] = None,
+        stats: Union[Dict, OrderedDict, None] = None,
         prefix: str = "",
-    ) -> tuple:
-        """Extracts schema and statistics from a MongoDB document."""
+    ) -> Tuple[Union[Dict, OrderedDict], Union[Dict, OrderedDict]]:
         if schema is None:
             schema = OrderedDict()
         if stats is None:
@@ -35,7 +46,6 @@ class SchemaAnalyser(BaseAnalyser):
         for key, value in document.items():
             full_key = f"{prefix}.{key}" if prefix else key
 
-            # Initialize the stats dictionary for each field
             if full_key not in stats:
                 stats[full_key] = {"values": set(), "count": 0}
 
@@ -46,42 +56,36 @@ class SchemaAnalyser(BaseAnalyser):
             else:
                 SchemaAnalyser.handle_simple_value(value, schema, stats, full_key)
 
-            # Track how often the field appears
             stats[full_key]["count"] += 1
-
         return schema, stats
 
     @staticmethod
     def handle_array(
-        value: list,
-        schema: Union[dict, OrderedDict],
-        stats: Union[dict, OrderedDict],
+        value: List,
+        schema: Union[Dict, OrderedDict],
+        stats: Union[Dict, OrderedDict],
         full_key: str,
     ) -> None:
-        """Handles the extraction of array data from a BSON document."""
-
-        # Initialize the schema dictionary for the full_key if it doesn't exist
         if full_key not in schema:
             schema[full_key] = {}
 
         if len(value) > 0:
             first_elem = value[0]
             if isinstance(first_elem, dict):
-                # Stop recursion here; just mark as "array<dict>"
                 schema[full_key]["type"] = "array<dict>"
             elif isinstance(first_elem, ObjectId):
                 schema[full_key] = {"type": "array<ObjectId>"}
             elif isinstance(first_elem, uuid.UUID):
                 schema[full_key] = {"type": "array<UUID>"}
             elif isinstance(first_elem, Binary):
-                SchemaAnalyser.handle_binary(first_elem, schema, full_key, is_array=True)
+                shared.handle_binary_type_representation(
+                    first_elem, schema, full_key, is_array=True
+                )
             elif isinstance(first_elem, bool):
                 schema[full_key] = {"type": "array<bool>"}
             elif isinstance(first_elem, int):
                 schema[full_key] = {
-                    "type": "array<int32>"
-                    if isinstance(first_elem, int) and not isinstance(first_elem, Int64)
-                    else "array<int64>"
+                    "type": "array<int64>" if isinstance(first_elem, Int64) else "array<int32>"
                 }
             elif isinstance(first_elem, float):
                 schema[full_key] = {"type": "array<double>"}
@@ -94,37 +98,23 @@ class SchemaAnalyser(BaseAnalyser):
         if full_key not in stats:
             stats[full_key] = {"values": set(), "count": 0}
 
-        def make_hashable(item: [dict, list]) -> any:
-            """Converts an unhashable list or dictionary object to a hashable object."""
-            if isinstance(item, dict):
-                return frozenset((k, make_hashable(v)) for k, v in item.items())
-            elif isinstance(item, list):
-                return tuple(make_hashable(i) for i in item)
-            else:
-                return item
-
-        hashable_value = make_hashable(value)
+        hashable_value = SchemaAnalyser._make_hashable(value)
         stats[full_key]["values"].add(hashable_value)
 
     @staticmethod
     def handle_simple_value(
-        value: any, schema: Union[dict, OrderedDict], stats: Union[dict, OrderedDict], full_key: str
+        value: Any, schema: Union[Dict, OrderedDict], stats: Union[Dict, OrderedDict], full_key: str
     ) -> None:
-        """Handles the extraction of primary data types from a BSON document."""
         if isinstance(value, ObjectId):
             schema[full_key] = {"type": "binary<ObjectId>"}
         elif isinstance(value, uuid.UUID):
             schema[full_key] = {"type": "binary<UUID>"}
         elif isinstance(value, Binary):
-            SchemaAnalyser.handle_binary(value, schema, full_key)
+            shared.handle_binary_type_representation(value, schema, full_key)
         elif isinstance(value, bool):
             schema[full_key] = {"type": "bool"}
         elif isinstance(value, int):
-            schema[full_key] = {
-                "type": "int32"
-                if isinstance(value, int) and not isinstance(value, Int64)
-                else "int64"
-            }
+            schema[full_key] = {"type": "int64" if isinstance(value, Int64) else "int32"}
         elif isinstance(value, float):
             schema[full_key] = {"type": "double"}
         elif isinstance(value, Decimal128):
@@ -134,48 +124,70 @@ class SchemaAnalyser(BaseAnalyser):
 
         if full_key not in stats:
             stats[full_key] = {"values": set(), "count": 0}
-
         stats[full_key]["values"].add(value)
 
-    # MongoDB connection setup
     @staticmethod
-    def connect_mongo(uri: str, db_name: str, collection_name: str) -> Collection:
-        """Connects to a MongoDB collection and returns the collection object."""
-        client = MongoClient(uri)
-        db = client[db_name]
-        collection = db[collection_name]
-        return collection
+    def get_collection(
+        uri: str, db_name: str, collection_name: str, server_timeout_ms: int = 5000
+    ) -> PyMongoCollection:
+        if not db_manager.db_connection_active(
+            uri=uri, db_name=db_name, server_timeout_ms=server_timeout_ms
+        ):
+            raise PyMongoConnectionFailure(
+                f"Failed to establish or verify active connection to MongoDB for {db_name}"
+            )
+        database = db_manager.get_mongo_db()
+        return database[collection_name]
 
-    # Function to infer schema and statistics from sample documents with batch processing
     @staticmethod
-    def infer_schema_and_stats(
-        collection: Collection, sample_size: int, batch_size: int = 10000
-    ) -> tuple:
-        """Infers the schema of a MongoDB collection using a sample of documents."""
+    def list_collection_names(uri: str, db_name: str, server_timeout_ms: int = 5000) -> List[str]:
+        if not db_manager.db_connection_active(
+            uri=uri, db_name=db_name, server_timeout_ms=server_timeout_ms
+        ):
+            raise PyMongoConnectionFailure(
+                f"Failed to establish or verify active connection to MongoDB for listing collections in {db_name}"
+            )
+
+        database = db_manager.get_mongo_db()
+        try:
+            names = sorted(database.list_collection_names())
+            return names
+        except PyMongoOperationFailure as e:
+            logger.error(f"MongoDB operation failure listing collections for DB '{db_name}': {e}")
+            raise
+
+    @staticmethod
+    def infer_schema_and_field_stats(
+        collection: PyMongoCollection, sample_size: int, batch_size: int = 1000
+    ) -> Tuple[Dict, Dict]:
         schema = OrderedDict()
         stats = OrderedDict()
         total_docs = 0
 
-        # If sample_size is negative, fetch all documents from the collection
-        if sample_size < 0:
-            documents = collection.find().batch_size(batch_size)
-        else:
-            documents = collection.aggregate([{"$sample": {"size": sample_size}}]).batch_size(
-                batch_size
+        try:
+            if sample_size < 0:
+                documents = collection.find().batch_size(batch_size)
+            else:
+                # For schema inference, a random sample is appropriate.
+                documents = collection.aggregate([{"$sample": {"size": sample_size}}]).batch_size(
+                    batch_size
+                )
+
+            for doc in documents:
+                total_docs += 1
+                schema, stats = SchemaAnalyser.extract_schema_and_stats(doc, schema, stats)
+                if sample_size > 0 and total_docs >= sample_size:
+                    break
+        except PyMongoOperationFailure as e:
+            logger.error(
+                f"Error during schema inference on {collection.database.name}.{collection.name}: {e}"
             )
-
-        for doc in documents:
-            total_docs += 1
-            schema, stats = SchemaAnalyser.extract_schema_and_stats(doc, schema, stats)
-
-            if sample_size > 0 and total_docs >= sample_size:
-                break
+            raise
 
         final_stats = OrderedDict()
-        for key, stat in stats.items():
-            cardinality = len(stat["values"])
-            # Calculate missing values based on how many times the field appeared vs total documents
-            missing_count = total_docs - stat["count"]
+        for key, stat_data in stats.items():
+            cardinality = len(stat_data["values"])
+            missing_count = total_docs - stat_data["count"]
             missing_percentage = (missing_count / total_docs) * 100 if total_docs > 0 else 0
             final_stats[key] = {
                 "cardinality": cardinality,
@@ -184,15 +196,37 @@ class SchemaAnalyser(BaseAnalyser):
 
         sorted_schema = OrderedDict(sorted(schema.items()))
         sorted_stats = OrderedDict(sorted(final_stats.items()))
-        return dict(sorted_schema), sorted_stats
+        return dict(sorted_schema), dict(sorted_stats)
 
-    # Function to create a Unicode table
     @staticmethod
-    def draw_unicode_table(headers: List[str], rows: List[List[str]]) -> None:
-        """Draws a table with Unicode characters using the provided headers and rows."""
-        col_widths = [max(len(str(item)) for item in col) for col in zip(headers, *rows)]
+    def get_collection_general_statistics(collection: PyMongoCollection) -> Dict:
+        try:
+            stats = collection.database.command("collStats", collection.name)
+            general_stats = {
+                "ns": stats.get("ns"),
+                "document_count": stats.get("count"),
+                "avg_obj_size_bytes": stats.get("avgObjSize"),
+                "total_size_bytes": stats.get("size"),
+                "storage_size_bytes": stats.get("storageSize"),
+                "nindexes": stats.get("nindexes"),
+                "total_index_size_bytes": stats.get("totalIndexSize"),
+                "capped": stats.get("capped", False),
+            }
+            return general_stats
+        except PyMongoOperationFailure as e:
+            logger.error(
+                f"Error getting collStats for {collection.database.name}.{collection.name}: {e}"
+            )
+            return {"error": str(e)}
 
-        def draw_separator(sep_type):
+    @staticmethod
+    def draw_unicode_table(headers: List[str], rows: List[List[Any]]) -> None:
+        if not rows:
+            print("No data to display in table.")
+            return
+        col_widths = [max(len(str(item)) for item in col) for col in zip(*([headers] + rows))]
+
+        def draw_separator(sep_type: str) -> None:
             parts = {
                 "top": ("┌", "┬", "┐"),
                 "mid": ("├", "┼", "┤"),
@@ -203,46 +237,57 @@ class SchemaAnalyser(BaseAnalyser):
             separator = start + sep.join([parts["line"] * (w + 2) for w in col_widths]) + end
             print(separator)
 
-        def draw_row(items):
-            row = "│ " + " │ ".join(f"{item!s:<{w}}" for item, w in zip(items, col_widths)) + " │"
-            print(row)
+        def draw_row(items: List[Any]) -> None:
+            row_str = (
+                "│ " + " │ ".join(f"{item!s:<{w}}" for item, w in zip(items, col_widths)) + " │"
+            )
+            print(row_str)
 
         draw_separator("top")
         draw_row(headers)
         draw_separator("mid")
-        for row in rows:
-            draw_row(row)
+        for r in rows:
+            draw_row(r)
         draw_separator("bottom")
 
     @staticmethod
-    def schema_to_hierarchical(schema: dict) -> dict:
-        """Converts a flat schema to a hierarchical schema."""
-        hierarchical_schema = {}
+    def schema_to_hierarchical(schema: Dict) -> Dict:
+        hierarchical_schema: Dict = {}
         for field, details in schema.items():
             parts = field.split(".")
             current_level = hierarchical_schema
             for part in parts[:-1]:
-                if part not in current_level:
-                    current_level[part] = {}
-                current_level = current_level[part]
+                current_level = current_level.setdefault(part, {})
             current_level[parts[-1]] = {"type": details["type"]}
         return hierarchical_schema
 
     @staticmethod
-    def save_schema_to_json(schema: dict, schema_file: Union[str, Path]) -> None:
-        """Saves the schema to a JSON file."""
+    def save_schema_to_json(schema: Dict, schema_file: Union[str, Path]) -> None:
         hierarchical_schema = SchemaAnalyser.schema_to_hierarchical(schema)
-        with io.open(schema_file, "w") as f:
-            json.dump(hierarchical_schema, f, indent=4)
-        print(f"Schema has been saved to {schema_file}")
+        output_path = Path(schema_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with output_path.open("w", encoding="utf-8") as f:
+                json.dump(hierarchical_schema, f, indent=4)
+            logger.info(f"Schema has been saved to {output_path}")
+            print(f"Schema has been saved to {output_path}")
+        except IOError as e:
+            logger.error(f"Failed to save schema to {output_path}: {e}")
+            print(f"Error: Could not save schema to {output_path}.")
 
     @staticmethod
     def save_table_to_csv(
-        headers: List[str], rows: List[List[str]], csv_file: Union[str, Path]
+        headers: List[str], rows: List[List[Any]], csv_file: Union[str, Path]
     ) -> None:
-        """Writes the rows to a CSV file with the provided headers."""
-        with open(csv_file, mode="w", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow(headers)
-            writer.writerows(rows)
-        print(f"Table has been saved to {csv_file}")
+        output_path = Path(csv_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with output_path.open(mode="w", newline="", encoding="utf-8") as file:
+                writer = csv.writer(file)
+                writer.writerow(headers)
+                writer.writerows(rows)
+            logger.info(f"Table has been saved to {output_path}")
+            print(f"Table has been saved to {output_path}")
+        except IOError as e:
+            logger.error(f"Failed to save CSV to {output_path}: {e}")
+            print(f"Error: Could not save table to {output_path}.")

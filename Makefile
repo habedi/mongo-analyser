@@ -17,6 +17,7 @@ CACHE_DIRS  = .mypy_cache .pytest_cache .ruff_cache
 COVERAGE    = .coverage htmlcov coverage.xml
 DIST_DIRS   = dist junit
 TMP_DIRS   = site
+TMP_FILES  = *.csv *.json *.json.gz .*_history.txt
 
 .DEFAULT_GOAL := help
 
@@ -81,5 +82,4 @@ publish: ## Publish to PyPI (requires PYPI_TOKEN)
 clean: ## Remove caches and build artifacts
 	find . -type f -name '*.pyc' -delete
 	find . -type d -name '__pycache__' -exec rm -rf {} +
-	rm -rf $(CACHE_DIRS) $(COVERAGE) $(DIST_DIRS) $(TMP_DIRS)
-	rm metadata.csv schema.json
+	rm -rf $(CACHE_DIRS) $(COVERAGE) $(DIST_DIRS) $(TMP_DIRS) $(TMP_FILES)
