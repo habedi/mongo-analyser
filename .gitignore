@@ -85,3 +85,5 @@ site/
 *.zip
 *.cast
 *.env
+*_output.txt
+.chat_history*.txt
