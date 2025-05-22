@@ -9,7 +9,7 @@ import pytz
 from bson.binary import Binary
 from pymongo import MongoClient
 
-from mongo_analyser.shared import BaseAnalyser
+from .shared import BaseAnalyser
 
 
 class DataExtractor(BaseAnalyser):

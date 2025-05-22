@@ -10,7 +10,7 @@ from bson import Binary, Decimal128, Int64, ObjectId
 from pymongo import MongoClient
 from pymongo.synchronous.collection import Collection
 
-from mongo_analyser.shared import BaseAnalyser
+from .shared import BaseAnalyser
 
 
 class SchemaAnalyser(BaseAnalyser):

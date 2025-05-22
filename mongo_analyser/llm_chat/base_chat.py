@@ -1,12 +1,11 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Iterator
+from typing import Any, Dict, Iterator, List
 
 logger = logging.getLogger(__name__)
 
 
 class LLMChat(ABC):
-
     @abstractmethod
     def __init__(self, model_name: str, **kwargs: Any):
         self.model_name = model_name

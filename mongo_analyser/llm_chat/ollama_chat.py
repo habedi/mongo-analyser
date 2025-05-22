@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any, Iterator
+from typing import Any, Dict, Iterator, List
 
 import ollama
 
@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class OllamaChat(LLMChat):
-
     def __init__(self, model_name: str, host: str = None, timeout: int = 30, **kwargs: Any):
         """
         Initializes the Ollama chat client.
@@ -26,9 +25,9 @@ class OllamaChat(LLMChat):
         super().__init__(model_name)  # Calls _initialize_client
 
     def _initialize_client(self, **kwargs: Any) -> ollama.Client:
-        client_params = {'timeout': self.timeout}
+        client_params = {"timeout": self.timeout}
         if self.host:
-            client_params['host'] = self.host
+            client_params["host"] = self.host
         client_params.update(self._client_options)
 
         try:
@@ -47,23 +46,22 @@ class OllamaChat(LLMChat):
 
         try:
             logger.debug(
-                f"Sending message to Ollama model {self.model_name}. History length: {len(formatted_history)}")
-            response = self.client.chat(
-                model=self.model_name,
-                messages=messages,
-                stream=False
+                f"Sending message to Ollama model {self.model_name}. History length: {len(formatted_history)}"
             )
+            response = self.client.chat(model=self.model_name, messages=messages, stream=False)
             assistant_response = response.get("message", {}).get("content", "")
             logger.debug(f"Received response from Ollama model {self.model_name}")
             return assistant_response
         except ollama.ResponseError as e:
             logger.error(
                 f"Ollama API ResponseError for model {self.model_name}: {e.status_code} - {e.error}",
-                exc_info=True)
+                exc_info=True,
+            )
             return f"Error: Ollama API error ({e.status_code}) - {e.error}"
         except Exception as e:
-            logger.error(f"Error communicating with Ollama model {self.model_name}: {e}",
-                         exc_info=True)
+            logger.error(
+                f"Error communicating with Ollama model {self.model_name}: {e}", exc_info=True
+            )
             return "Error: Could not get a response from Ollama."
 
     def stream_message(self, message: str, history: List[Dict[str, str]] = None) -> Iterator[str]:
@@ -72,12 +70,9 @@ class OllamaChat(LLMChat):
 
         try:
             logger.debug(
-                f"Streaming message to Ollama model {self.model_name}. History length: {len(formatted_history)}")
-            stream = self.client.chat(
-                model=self.model_name,
-                messages=messages,
-                stream=True
+                f"Streaming message to Ollama model {self.model_name}. History length: {len(formatted_history)}"
             )
+            stream = self.client.chat(model=self.model_name, messages=messages, stream=True)
             for chunk in stream:
                 if not chunk.get("done"):
                     content_chunk = chunk.get("message", {}).get("content", "")
@@ -90,7 +85,8 @@ class OllamaChat(LLMChat):
         except ollama.ResponseError as e:
             logger.error(
                 f"Ollama API ResponseError during stream for model {self.model_name}: {e.status_code} - {e.error}",
-                exc_info=True)
+                exc_info=True,
+            )
             yield f"Error: Ollama API error ({e.status_code}) - {e.error}"
         except Exception as e:
             logger.error(f"Error streaming from Ollama model {self.model_name}: {e}", exc_info=True)
@@ -100,10 +96,12 @@ class OllamaChat(LLMChat):
         try:
             logger.debug("Fetching available Ollama models.")
             models_data = self.client.list()
-            available_models = [model.get("model") for model in models_data.get("models", []) if model.get("model")]
+            available_models = [
+                model.get("model") for model in models_data.get("models", []) if model.get("model")
+            ]
             logger.info(f"Found Ollama models: {available_models}")
             return available_models
-        except Exception as e: # Broad exception for connection/setup issues
+        except Exception as e:  # Broad exception for connection/setup issues
             logger.error(f"Error fetching Ollama models: {e}", exc_info=True)
             return []
 

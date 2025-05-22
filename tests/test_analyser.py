@@ -65,7 +65,7 @@ def test_handle_simple_value_with_uuid():
 
 def test_connect_mongo(mocker):
     # Arrange
-    mock_mongo_client = mocker.patch("mongo_analyser.analyser.MongoClient")
+    mock_mongo_client = mocker.patch("mongo_analyser.core.analyser.MongoClient")
     mock_db = mock_mongo_client.return_value.__getitem__.return_value
     mock_collection = mock_db.__getitem__.return_value
     uri = "mongodb://localhost:27017"
@@ -123,8 +123,8 @@ def test_schema_to_hierarchical():
 
 def test_save_schema_to_json(mocker):
     # Arrange
-    mock_open = mocker.patch("mongo_analyser.analyser.io.open", mocker.mock_open())
-    mock_json_dump = mocker.patch("mongo_analyser.analyser.json.dump")
+    mock_open = mocker.patch("mongo_analyser.core.analyser.io.open", mocker.mock_open())
+    mock_json_dump = mocker.patch("mongo_analyser.core.analyser.json.dump")
     schema = {"name": {"type": "str"}}
     schema_file = "schema.json"
 

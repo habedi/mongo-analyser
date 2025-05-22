@@ -1,6 +1,6 @@
 import logging
 import sys
-from typing import Type, List, Dict
+from typing import Dict, List, Type
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -15,10 +15,12 @@ from .openai_chat import OpenAIChat
 logger = logging.getLogger(__name__)
 
 # Basic styling for the prompt (optional)
-prompt_style = Style.from_dict({
-    'prompt': '#ansiblue bold',
-    'user-input': '',  # Default text color
-})
+prompt_style = Style.from_dict(
+    {
+        "prompt": "#ansiblue bold",
+        "user-input": "",  # Default text color
+    }
+)
 
 
 def select_llm_provider() -> Type[LLMChat] | None:
@@ -31,11 +33,11 @@ def select_llm_provider() -> Type[LLMChat] | None:
     while True:
         try:
             choice = input("Enter choice: ").strip()
-            if choice == '1':
+            if choice == "1":
                 return OllamaChat
-            elif choice == '2':
+            elif choice == "2":
                 return OpenAIChat
-            elif choice == '0':
+            elif choice == "0":
                 return None
             else:
                 print("Invalid choice. Please enter 1, 2, or 0.")
@@ -47,14 +49,15 @@ def get_ollama_config() -> Dict:
     """Gets configuration specific to Ollama."""
     config = {}
     host_input = input(
-        "Enter Ollama host (leave blank for default, e.g., http://localhost:11434 or OLLAMA_HOST env var): ").strip()
+        "Enter Ollama host (leave blank for default, e.g., http://localhost:11434 or OLLAMA_HOST env var): "
+    ).strip()
     if host_input:
-        config['host'] = host_input
+        config["host"] = host_input
 
     timeout_input = input("Enter timeout for Ollama requests in seconds (default: 30): ").strip()
     if timeout_input:
         try:
-            config['timeout'] = int(timeout_input)
+            config["timeout"] = int(timeout_input)
         except ValueError:
             print("Invalid timeout value, using default.")
     return config
@@ -71,14 +74,14 @@ def get_openai_config() -> Dict:
     timeout_input = input("Enter timeout for OpenAI requests in seconds (default: 30.0): ").strip()
     if timeout_input:
         try:
-            config['timeout'] = float(timeout_input)
+            config["timeout"] = float(timeout_input)
         except ValueError:
             print("Invalid timeout value, using default.")
 
     max_retries_input = input("Enter maximum retries for OpenAI requests (default: 2): ").strip()
     if max_retries_input:
         try:
-            config['max_retries'] = int(max_retries_input)
+            config["max_retries"] = int(max_retries_input)
         except ValueError:
             print("Invalid retries value, using default.")
     return config
@@ -103,12 +106,14 @@ def select_model(llm_instance: LLMChat) -> str | None:
         while True:
             try:
                 choice_input = input(
-                    f"Select model (1-{len(models)}, or 0 to cancel/enter manually): ").strip()
+                    f"Select model (1-{len(models)}, or 0 to cancel/enter manually): "
+                ).strip()
                 model_choice_idx = int(choice_input)
 
                 if model_choice_idx == 0:
                     manual_model = input(
-                        "Enter model name manually (or press Enter to cancel): ").strip()
+                        "Enter model name manually (or press Enter to cancel): "
+                    ).strip()
                     return manual_model if manual_model else None
                 elif 1 <= model_choice_idx <= len(models):
                     return models[model_choice_idx - 1]
@@ -117,11 +122,13 @@ def select_model(llm_instance: LLMChat) -> str | None:
             except ValueError:
                 print("Invalid input. Please enter a number.")
     except Exception as e:
-        logger.error(f"Could not retrieve models for {llm_instance.__class__.__name__}: {e}",
-                     exc_info=True)
+        logger.error(
+            f"Could not retrieve models for {llm_instance.__class__.__name__}: {e}", exc_info=True
+        )
         print(f"Error fetching models: {e}")
         manual_model = input(
-            "Could not fetch models. Enter model name manually (or press Enter to cancel): ").strip()
+            "Could not fetch models. Enter model name manually (or press Enter to cancel): "
+        ).strip()
         return manual_model if manual_model else None
 
 
@@ -133,10 +140,13 @@ def run_chat_session(chat_instance: LLMChat):
     print("---")
 
     # Create a unique history file per model if desired, or a general one
-    history_file = f".chat_history_{chat_instance.__class__.__name__}_{chat_instance.model_name}.txt"
+    history_file = (
+        f".chat_history_{chat_instance.__class__.__name__}_{chat_instance.model_name}.txt"
+    )
     history_file = history_file.replace(":", "_")  # Sanitize for filename
-    session = PromptSession(history=FileHistory(history_file),
-                            auto_suggest=AutoSuggestFromHistory())
+    session = PromptSession(
+        history=FileHistory(history_file), auto_suggest=AutoSuggestFromHistory()
+    )
 
     chat_history: List[Dict[str, str]] = []
 
@@ -144,11 +154,11 @@ def run_chat_session(chat_instance: LLMChat):
         try:
             user_input = session.prompt("You: ", style=prompt_style).strip()
 
-            if user_input.lower() in ['/exit', '/quit']:
+            if user_input.lower() in ["/exit", "/quit"]:
                 print("Exiting chat session.")
                 break
 
-            if user_input.lower() == '/history':
+            if user_input.lower() == "/history":
                 if not chat_history:
                     print("Chat history is empty.")
                 else:
@@ -176,15 +186,17 @@ def run_chat_session(chat_instance: LLMChat):
                     full_response += chunk
                 print()  # Newline after streaming is done
             except Exception as e:
-                logger.error(f"Error during streaming with {chat_instance.model_name}: {e}",
-                             exc_info=True)
+                logger.error(
+                    f"Error during streaming with {chat_instance.model_name}: {e}", exc_info=True
+                )
                 print(f"\nError during streaming: {e}")
                 # Optionally, decide if you want to skip adding this failed turn to history
                 continue
 
             chat_history.append(current_turn_user_message)  # Add user message for this turn
             chat_history.append(
-                {"role": "assistant", "content": full_response})  # Add assistant response
+                {"role": "assistant", "content": full_response}
+            )  # Add assistant response
 
         except KeyboardInterrupt:
             print("\nExiting chat session (KeyboardInterrupt).")
@@ -214,20 +226,24 @@ def main_tui():
         if llm_provider_class == OllamaChat:
             config_params = get_ollama_config()
             # Ollama client for listing doesn't strictly need a real model name if host is set
-            temp_instance_for_listing = llm_provider_class(model_name="dummy-for-listing",
-                                                           **config_params)
+            temp_instance_for_listing = llm_provider_class(
+                model_name="dummy-for-listing", **config_params
+            )
         elif llm_provider_class == OpenAIChat:
             config_params = get_openai_config()
             # OpenAI client for listing needs to be initialized (which checks API key)
             # A common, often available model can be used as a placeholder if required by __init__
-            temp_instance_for_listing = llm_provider_class(model_name="gpt-3.5-turbo",
-                                                           **config_params)
+            temp_instance_for_listing = llm_provider_class(
+                model_name="gpt-3.5-turbo", **config_params
+            )
         else:
             print(f"Provider {llm_provider_class.__name__} setup not fully implemented in TUI.")
             return
     except (ValueError, ConnectionError, PermissionError) as e:
-        logger.error(f"Configuration or Connection Error for {llm_provider_class.__name__}: {e}",
-                     exc_info=True)
+        logger.error(
+            f"Configuration or Connection Error for {llm_provider_class.__name__}: {e}",
+            exc_info=True,
+        )
         print(f"Error: {e}")
         return
     except Exception as e:
@@ -245,24 +261,25 @@ def main_tui():
         chat_instance = llm_provider_class(model_name=selected_model_name, **config_params)
         run_chat_session(chat_instance)
     except (ValueError, ConnectionError, PermissionError) as e:
-        logger.error(f"Error initializing chat with model {selected_model_name}: {e}",
-                     exc_info=True)
+        logger.error(
+            f"Error initializing chat with model {selected_model_name}: {e}", exc_info=True
+        )
         print(f"Error: {e}")
     except Exception as e:
         logger.error(f"Unexpected error initializing chat instance: {e}", exc_info=True)
         print(f"An unexpected error occurred: {e}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # This allows you to run the TUI directly for testing:
     # python -m mongo_analyser.llm_chat.tui
 
     # Basic logging setup for direct execution
     logging.basicConfig(
         level=logging.INFO,  # Change to DEBUG for more verbose output from clients
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout)  # Ensure logs go to stdout for TUI visibility
-        ]
+        ],
     )
     main_tui()

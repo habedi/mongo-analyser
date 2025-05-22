@@ -2,7 +2,6 @@ import io
 import json
 
 import pytz
-
 from mongo_analyser import DataExtractor
 
 # Build MongoDB URI
