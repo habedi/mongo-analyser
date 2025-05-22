@@ -87,3 +87,4 @@ site/
 *.env
 *_output.txt
 .chat_history*.txt
+.mongo_analyser_core_history.txt
