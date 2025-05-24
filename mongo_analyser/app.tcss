@@ -1,0 +1,208 @@
+/* General App Styles */
+Screen {
+    background: $surface-darken-1; /* Slightly darker surface for the base screen */
+    color: $text;
+    overflow: hidden auto; /* Allow screen to scroll if absolutely necessary, prefer content scrolling */
+}
+
+Header {
+    dock: top;
+    height: 1;
+    background: $primary-background-darken-1; /* Darker blue */
+    color: $text;
+    padding: 0 1; /* No vertical padding, horizontal padding for text */
+    text-style: bold; /* Make header text bold */
+}
+
+Footer {
+    dock: bottom;
+    height: 1;
+    background: $primary-background-darken-2; /* Even darker blue */
+    color: $text;
+    padding: 0 1;
+}
+
+Tabs {
+    dock: top; /* Below Header */
+    background: $primary-background;
+    padding: 0 1;
+}
+
+Tab {
+    padding: 1; /* Padding within each tab label */
+    color: $text; /* Explicitly set text color for tab labels */
+}
+
+ContentSwitcher > Container { /* Style for the active view within ContentSwitcher */
+    padding: 1;
+    overflow: auto; /* Individual views should scroll their own content */
+}
+
+/* Common Panel Styles */
+.panel_title {
+    padding: 1 0;
+    text-style: bold underline;
+    width: 100%;
+    text-align: center;
+    color: $secondary; /* Use secondary color for titles */
+}
+.panel_title_small {
+    padding-top: 1;
+    text-style: bold;
+    width: 100%;
+    color: $secondary-darken-1;
+}
+
+/* ChatView Specific Styles */
+#chat_interface_horizontal_layout {
+    layout: horizontal;
+    height: 100%;
+    width: 100%;
+}
+
+.chat_column_main {
+    width: 2fr; /* Main chat area takes 2/3 of space */
+    height: 100%;
+    padding-right: 1;
+    /* border-right: thick $primary-darken-2; */ /* Optional separator */
+}
+
+.chat_column_sidebar {
+    width: 1fr; /* Sidebar takes 1/3 of space */
+    min-width: 30; /* Ensure sidebar has a minimum width */
+    height: 100%;
+    padding: 0 1; /* Padding inside the sidebar */
+    border: round $primary-darken-1;
+    background: $primary-background-darken-3; /* Darker background for sidebar */
+}
+
+.chat_log_container {
+    height: 1fr; /* Takes up available vertical space in .chat_column_main */
+    border: round $primary-darken-2;
+    margin-bottom: 1;
+    padding: 1;
+    background: $boost; /* Slightly different background for log */
+}
+#chat_log_widget {
+    width: 100%;
+}
+
+.chat_input_container {
+    height: auto; /* Shrink to content: input (min 3 lines) + buttons */
+    width: 100%;
+    align: left bottom; /* Correction: horizontal vertical */
+    margin-top: 1; /* Space above input bar */
+}
+
+.chat_input_text {
+    width: 1fr; /* Input field takes remaining space */
+    min-height: 3; /* Make input area a bit taller */
+    margin-right: 1;
+}
+
+.chat_button {
+    width: auto; /* Fit content */
+    height: 100%; /* Match height of input field if it's single line, else align */
+    min-width: 8; /* Ensure buttons are not too small */
+}
+#send_chat_message_button {
+    margin-right:1; /* Space between send and stop */
+}
+
+
+#chat_config_panel {
+    /* padding is already on .chat_column_sidebar */
+}
+#chat_config_panel Label {
+    margin-top: 1;
+}
+#chat_config_panel Input, #chat_config_panel Select {
+    width: 100%;
+}
+#chat_config_panel Button.config_button { /* Specific button in config */
+    width: 100%;
+    margin-top: 2; /* More space before this main config button */
+    /* variant: success; <-- This is set in Python, Textual applies default styling. Remove from CSS. */
+}
+
+/* DB Connection View */
+#view_db_connection { /* Target the view container */
+    padding: 1;
+}
+#view_db_connection Label {
+    margin-top: 1;
+}
+#view_db_connection Input {
+    width: 100%;
+}
+#connect_mongo_button { /* More specific targeting */
+    margin-top: 1;
+    width: 100%;
+}
+#mongo_connection_status_label {
+    margin-top: 1;
+    padding: 1;
+    width: 100%;
+    text-align: center;
+    border: round $background-lighten-2;
+    height: auto; /* Fit content */
+}
+#collections_title_label {
+    /* visibility: hidden; Initially hide if you prefer */
+    margin-top: 2;
+}
+.collections_list_container {
+    margin-top:1;
+    border: round $primary-darken-1;
+    height: 10; /* Example height, adjust as needed */
+    padding:1;
+    background: $primary-background-darken-3;
+    overflow: auto;
+}
+.collections_list_container Label { /* Style for collection names */
+    padding: 0 1;
+}
+
+
+/* Schema Analysis View */
+#view_schema_analysis Input {
+    width: 100%;
+    margin-bottom:1;
+}
+#analyze_schema_button { /* More specific targeting */
+    width: 100%;
+    margin-top:1;
+    margin-bottom:1;
+}
+#schema_results_table {
+    margin-top:1;
+    height: 15;
+    border: round $primary-darken-1;
+    overflow: auto;
+}
+.json_view_container {
+    margin-top:1;
+    height: 10;
+    border: round $primary-darken-1;
+    background: $primary-background-darken-3;
+    padding: 1;
+    overflow: auto;
+}
+
+/* Data Extraction View */
+#view_data_extraction Input {
+    width: 100%;
+    margin-bottom:1;
+}
+#start_extraction_button { /* More specific targeting */
+    width: 100%;
+    margin-top:1;
+    margin-bottom:1;
+}
+#extraction_log {
+    height: 20; /* Example height */
+    border: round $primary-darken-1;
+    background: $primary-background-darken-3;
+    overflow: auto;
+    padding:1;
+}
