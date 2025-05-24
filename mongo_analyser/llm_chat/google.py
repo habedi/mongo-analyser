@@ -10,7 +10,7 @@ from google.generativeai.types import (
     SafetySettingDict,
 )
 
-from .base_chat import LLMChat
+from .base import LLMChat
 
 logger = logging.getLogger(__name__)
 

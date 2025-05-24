@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 class LLMChat(ABC):
     def __init__(self, model_name: str, **kwargs: Any):
         self.model_name = model_name
-        self.client_config = (kwargs)
+        self.client_config = kwargs
         logger.info(f"Initializing {self.__class__.__name__} with model: {self.model_name}")
         self.client = self._initialize_client(**self.client_config)
 
@@ -30,8 +30,6 @@ class LLMChat(ABC):
         pass
 
     def get_available_models(self) -> List[str]:
-        # This instance method can now call the static list_models
-        # with the configuration used to initialize this instance.
         return self.__class__.list_models(client_config=self.client_config)
 
     def format_history(self, history: List[Dict[str, str]] = None) -> List[Dict[str, str]]:

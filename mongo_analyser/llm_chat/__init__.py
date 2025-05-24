@@ -1,7 +1,7 @@
-from .base_chat import LLMChat
-from .google_chat import GoogleChat
-from .ollama_chat import OllamaChat
-from .openai_chat import OpenAIChat
+from .base import LLMChat
+from .google import GoogleChat
+from .ollama import OllamaChat
+from .openai import OpenAIChat
 
 __all__ = [
     "GoogleChat",

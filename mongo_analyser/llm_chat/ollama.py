@@ -3,7 +3,7 @@ from typing import Any, Dict, Iterator, List, Optional
 
 import ollama
 
-from .base_chat import LLMChat
+from .base import LLMChat
 
 logger = logging.getLogger(__name__)
 

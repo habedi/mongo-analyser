@@ -27,10 +27,10 @@ from mongo_analyser.core import analyser as core_analyser
 from mongo_analyser.core import db as core_db_manager
 from mongo_analyser.core import extractor as core_extractor
 from mongo_analyser.core import shared as core_shared
-from mongo_analyser.llm_chat.base_chat import LLMChat
-from mongo_analyser.llm_chat.google_chat import GoogleChat
-from mongo_analyser.llm_chat.ollama_chat import OllamaChat
-from mongo_analyser.llm_chat.openai_chat import OpenAIChat
+from mongo_analyser.llm_chat.base import LLMChat
+from mongo_analyser.llm_chat.google import GoogleChat
+from mongo_analyser.llm_chat.ollama import OllamaChat
+from mongo_analyser.llm_chat.openai import OpenAIChat
 
 logger = logging.getLogger(__name__)
 
