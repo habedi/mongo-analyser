@@ -65,103 +65,116 @@ class DataExtractor:
             if isinstance(value, dict):
                 for sub_key, sub_type in DataExtractor.infer_types_from_document(value).items():
                     field_types[f"{key}.{sub_key}"] = sub_type
-            elif isinstance(value, list) and value and isinstance(value[0], dict):
-                field_types[key] = "array<dict>"
         return field_types
 
     @staticmethod
+    def _convert_single_value(
+        val: Any,
+        schema_type_str: Optional[str],
+        tz: Union[pytz.timezone, None],
+        items_schema_for_array_elements: Optional[Dict] = None,
+    ) -> Any:
+        if val is None:
+            return None
+
+        type_to_check = schema_type_str or DataExtractor._infer_type_val(val)
+
+        if isinstance(val, list):
+            if (
+                type_to_check == "array<dict>"
+                and items_schema_for_array_elements
+                and isinstance(items_schema_for_array_elements, dict)
+            ):
+                return [
+                    DataExtractor.convert_to_json_compatible(
+                        item, items_schema_for_array_elements, tz
+                    )
+                    for item in val
+                    if isinstance(item, dict)
+                ]
+            else:
+                item_type_str_for_elements = None
+                if (
+                    type_to_check
+                    and type_to_check.startswith("array<")
+                    and type_to_check.endswith(">")
+                ):
+                    item_type_str_for_elements = type_to_check[len("array<") : -1]
+                return [
+                    DataExtractor._convert_single_value(item, item_type_str_for_elements, tz)
+                    for item in val
+                ]
+
+        if type_to_check == "binary<UUID>" or type_to_check == "UUID" or isinstance(val, uuid.UUID):
+            return str(val)
+        if (
+            type_to_check == "binary<ObjectId>"
+            or type_to_check == "ObjectId"
+            or isinstance(val, ObjectId)
+        ):
+            return str(val)
+        if type_to_check == "datetime" or isinstance(val, datetime):
+            return val.astimezone(tz).isoformat() if tz and val.tzinfo else val.isoformat()
+        if type_to_check == "str":
+            return str(val)
+        if type_to_check in ("int32", "int64") or isinstance(val, (int, Int64)):
+            return int(val)
+        if type_to_check == "bool" or isinstance(val, bool):
+            return bool(val)
+        if type_to_check == "double" or isinstance(val, float):
+            return float(val)
+        if type_to_check == "decimal128" or isinstance(val, Decimal128):
+            return str(val.to_decimal())
+        if (
+            type_to_check
+            and "binary<" in type_to_check
+            and type_to_check not in ("binary<ObjectId>", "binary<UUID>")
+        ) or isinstance(val, Binary):
+            return val.hex()
+
+        if isinstance(
+            val, (str, int, float, bool, dict)
+        ):  # dict here is a fallback if not handled by recursive convert_to_json_compatible
+            return val
+
+        logger.warning(
+            f"Value {str(val)[:50]} of type {type(val)} with schema type {schema_type_str} fell through to string conversion."
+        )
+        return str(val)
+
+    @staticmethod
     def convert_to_json_compatible(
-        document: Dict, schema: Dict, tz: Union[pytz.timezone, None]
+        document: Dict, schema_for_current_level: Dict, tz: Union[pytz.timezone, None]
     ) -> Dict:
         processed_document: Dict = {}
+        for key, value in document.items():
+            if value is None:
+                processed_document[key] = None
+                continue
 
-        def _convert_value_recursive(
-            key_path: str, val: Any, schema_type_info: Optional[Union[str, Dict]]
-        ) -> Any:
-            if val is None:
-                return None
+            field_schema_definition = schema_for_current_level.get(key)
 
-            current_schema_type_str: Optional[str] = None
-            items_schema_info: Optional[Union[str, Dict]] = None
+            if isinstance(field_schema_definition, dict):
+                type_str_from_schema = field_schema_definition.get("type")
 
-            if isinstance(schema_type_info, str):
-                current_schema_type_str = schema_type_info
-                if schema_type_info.startswith("array<") and schema_type_info.endswith(">"):
-                    items_schema_info = schema_type_info[len("array<") : -1]
-            elif isinstance(schema_type_info, dict) and "type" in schema_type_info:
-                current_schema_type_str = schema_type_info["type"]
-                if current_schema_type_str == "array" and "items" in schema_type_info:
-                    items_schema_info = schema_type_info["items"]
-                elif isinstance(current_schema_type_str, dict):
-                    pass
-
-            try:
-                if isinstance(val, list) and items_schema_info:
-                    return [
-                        _convert_value_recursive(f"{key_path}[{i}]", item, items_schema_info)
-                        for i, item in enumerate(val)
-                    ]
-
-                if isinstance(val, dict) and isinstance(current_schema_type_str, dict):
-                    return DataExtractor.convert_to_json_compatible(
-                        val, current_schema_type_str, tz
+                if type_str_from_schema and isinstance(type_str_from_schema, str):
+                    items_sub_schema = (
+                        field_schema_definition.get("items")
+                        if type_str_from_schema == "array<dict>"
+                        and isinstance(field_schema_definition.get("items"), dict)
+                        else None
                     )
-
-                type_to_check = current_schema_type_str or DataExtractor._infer_type_val(val)
-
-                if (
-                    type_to_check == "binary<UUID>"
-                    or isinstance(val, uuid.UUID)
-                    or type_to_check == "UUID"
-                    or type_to_check == "binary<ObjectId>"
-                    or type_to_check == "ObjectId"
-                    or isinstance(val, ObjectId)
-                ):
-                    return str(val)
-                elif type_to_check == "datetime" or isinstance(val, datetime):
-                    return val.astimezone(tz).isoformat() if tz else val.isoformat()
-                elif type_to_check == "str":
-                    return str(val)
-                elif type_to_check in ("int32", "int64") or isinstance(val, (int, Int64)):
-                    return int(val)
-                elif type_to_check == "bool" or isinstance(val, bool):
-                    return bool(val)
-                elif type_to_check == "double" or isinstance(val, float):
-                    return float(val)
-                elif type_to_check == "decimal128" or isinstance(val, Decimal128):
-                    return str(val.to_decimal())
-                elif (
-                    type_to_check
-                    and "binary<" in type_to_check
-                    and type_to_check != "binary<ObjectId>"
-                    and type_to_check != "binary<UUID>"
-                ) or isinstance(val, Binary):
-                    return val.hex()
-
-                if isinstance(val, (str, int, float, bool, list, dict)) and val is not None:
-                    return val
-                return str(val)
-            except Exception as e:
-                logger.warning(
-                    f"Conversion failed for '{key_path}' (value: {str(val)[:50]}..., type: {type(val)}) to '{current_schema_type_str}': {e}"
-                )
-                return str(val)
-
-        for top_key, top_value in document.items():
-            schema_details_for_key = schema.get(top_key)
-
-            if (
-                isinstance(top_value, dict)
-                and isinstance(schema_details_for_key, dict)
-                and isinstance(schema_details_for_key.get("type"), dict)
-            ):
-                processed_document[top_key] = DataExtractor.convert_to_json_compatible(
-                    top_value, schema_details_for_key["type"], tz
-                )
+                    processed_document[key] = DataExtractor._convert_single_value(
+                        value, type_str_from_schema, tz, items_sub_schema
+                    )
+                elif not type_str_from_schema and isinstance(value, dict):
+                    processed_document[key] = DataExtractor.convert_to_json_compatible(
+                        value, field_schema_definition, tz
+                    )
+                else:
+                    processed_document[key] = DataExtractor._convert_single_value(value, None, tz)
             else:
-                processed_document[top_key] = _convert_value_recursive(
-                    top_key, top_value, schema_details_for_key
-                )
+                processed_document[key] = DataExtractor._convert_single_value(value, None, tz)
         return processed_document
 
     @staticmethod
@@ -169,7 +182,7 @@ class DataExtractor:
         mongo_uri: str,
         db_name: str,
         collection_name: str,
-        schema: Dict,
+        schema: Dict,  # This is the hierarchical schema
         output_file: Union[str, Path],
         tz: Union[None, pytz.timezone],
         batch_size: int,
@@ -191,7 +204,7 @@ class DataExtractor:
 
         try:
             data_cursor = (
-                collection.find(no_cursor_timeout=False)
+                collection.find(no_cursor_timeout=True)  # Changed to True
                 .sort("_id", DESCENDING)
                 .batch_size(batch_size)
             )
@@ -257,20 +270,20 @@ def get_newest_documents(
             return []
 
         projection_doc: Optional[Dict[str, int]] = None
-        # Filter out empty strings from fields list if it exists
         valid_fields = [f for f in fields if f] if fields else None
 
         if valid_fields:
             projection_doc = {field: 1 for field in valid_fields}
-            if "_id" not in valid_fields:
-                projection_doc["_id"] = 0
-        elif (
-            fields is not None and not valid_fields
-        ):  # User provided fields, but all were empty (e.g. ",,")
-            # This case means user intended to select specific fields but provided only empty strings.
-            # To avoid fetching all fields by default when projection_doc is None,
-            # we can project only _id, or return an empty list, or log a warning.
-            # For now, let's project only _id to be safe and minimal.
+            if (
+                "_id" not in valid_fields and "id" not in valid_fields
+            ):  # also check for "id" if it's an alias
+                projection_doc["_id"] = 0  # only exclude if not explicitly asked for by either name
+            elif (
+                "_id" in valid_fields or "id" in valid_fields
+            ):  # if _id or id is asked, ensure it's included
+                projection_doc["_id"] = 1
+
+        elif fields is not None and not valid_fields:
             logger.warning("Fields list contained only empty strings. Projecting only _id.")
             projection_doc = {"_id": 1}
 

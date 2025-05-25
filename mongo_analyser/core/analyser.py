@@ -66,13 +66,10 @@ class SchemaAnalyser:
         stats: Union[Dict, OrderedDict],
         full_key: str,
     ) -> None:
-        if full_key not in schema:
-            schema[full_key] = {}
-
         if len(value) > 0:
             first_elem = value[0]
             if isinstance(first_elem, dict):
-                schema[full_key]["type"] = "array<dict>"
+                schema[full_key] = {"type": "array<dict>"}
             elif isinstance(first_elem, ObjectId):
                 schema[full_key] = {"type": "array<ObjectId>"}
             elif isinstance(first_elem, uuid.UUID):
@@ -168,7 +165,6 @@ class SchemaAnalyser:
             if sample_size < 0:
                 documents = collection.find().batch_size(batch_size)
             else:
-                # For schema inference, a random sample is appropriate.
                 documents = collection.aggregate([{"$sample": {"size": sample_size}}]).batch_size(
                     batch_size
                 )
@@ -201,16 +197,16 @@ class SchemaAnalyser:
     @staticmethod
     def get_collection_general_statistics(collection: PyMongoCollection) -> Dict:
         try:
-            stats = collection.database.command("collStats", collection.name)
+            stats_cmd_result = collection.database.command("collStats", collection.name)
             general_stats = {
-                "ns": stats.get("ns"),
-                "document_count": stats.get("count"),
-                "avg_obj_size_bytes": stats.get("avgObjSize"),
-                "total_size_bytes": stats.get("size"),
-                "storage_size_bytes": stats.get("storageSize"),
-                "nindexes": stats.get("nindexes"),
-                "total_index_size_bytes": stats.get("totalIndexSize"),
-                "capped": stats.get("capped", False),
+                "ns": stats_cmd_result.get("ns"),
+                "document_count": stats_cmd_result.get("count"),
+                "avg_obj_size_bytes": stats_cmd_result.get("avgObjSize"),
+                "total_size_bytes": stats_cmd_result.get("size"),
+                "storage_size_bytes": stats_cmd_result.get("storageSize"),
+                "nindexes": stats_cmd_result.get("nindexes"),
+                "total_index_size_bytes": stats_cmd_result.get("totalIndexSize"),
+                "capped": stats_cmd_result.get("capped", False),
             }
             return general_stats
         except PyMongoOperationFailure as e:

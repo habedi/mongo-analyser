@@ -154,7 +154,7 @@ ContentSwitcher > Container { /* Style for the active view within ContentSwitche
 .collections_list_container {
     margin-top:1;
     border: round $primary-darken-1;
-    height: 10; /* Example height, adjust as needed */
+    height: 15; /* Increased from 10, as per previous update */
     padding:1;
     background: $primary-background-darken-3;
     overflow: auto;
@@ -176,18 +176,40 @@ ContentSwitcher > Container { /* Style for the active view within ContentSwitche
 }
 #schema_results_table {
     margin-top:1;
-    height: 15;
+    height: 20; /* Increased from 15, as per previous update */
     border: round $primary-darken-1;
     overflow: auto;
 }
 .json_view_container {
     margin-top:1;
-    height: 10;
+    height: 15; /* Increased from 10, as per previous update */
     border: round $primary-darken-1;
     background: $primary-background-darken-3;
     padding: 1;
     overflow: auto;
 }
+
+/* Copy buttons and feedback for SchemaAnalysisView (from previous update) */
+.copy_button_container {
+    layout: horizontal;
+    height: auto;
+    margin-top: 1;
+    width: 100%;
+    align: center middle; /* Center buttons */
+}
+
+.copy_button_container Button {
+    width: 1fr; /* Distribute space among buttons */
+    margin: 0 1; /* Add some horizontal margin */
+}
+#schema_copy_feedback_label {
+    width: 100%;
+    text-align: center;
+    height: 1;
+    margin-top: 1;
+    color: $success; /* Use success color for feedback */
+}
+
 
 /* Data Extraction View */
 #view_data_extraction Input {
