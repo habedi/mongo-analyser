@@ -99,7 +99,7 @@ class DataExtractor:
                     and type_to_check.startswith("array<")
                     and type_to_check.endswith(">")
                 ):
-                    item_type_str_for_elements = type_to_check[len("array<") : -1]
+                    item_type_str_for_elements = type_to_check[len("array<"): -1]
                 return [
                     DataExtractor._convert_single_value(item, item_type_str_for_elements, tz)
                     for item in val
@@ -161,7 +161,7 @@ class DataExtractor:
                     items_sub_schema = (
                         field_schema_definition.get("items")
                         if type_str_from_schema == "array<dict>"
-                        and isinstance(field_schema_definition.get("items"), dict)
+                           and isinstance(field_schema_definition.get("items"), dict)
                         else None
                     )
                     processed_document[key] = DataExtractor._convert_single_value(

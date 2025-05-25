@@ -5,16 +5,18 @@ import logging
 import math
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Type
 
 import pytz
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
+from textual._path import CSSPathType
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
+from textual.driver import Driver
 from textual.reactive import reactive
 from textual.widgets import (
     Button,
@@ -233,7 +235,8 @@ class ChatView(Container):
                 provider=provider_value_str,
                 client_config=client_config_for_list,
             )
-            worker = self.app.run_worker(callable_with_args, thread=True, group="model_listing")  # type: ignore
+            worker = self.app.run_worker(callable_with_args, thread=True,
+                                         group="model_listing")  # type: ignore
             listed_models = await worker.wait()
         except WorkerCancelled:
             logger.warning(f"Model listing worker for '{provider_value_str}' was cancelled.")
@@ -872,7 +875,7 @@ class SchemaAnalysisView(Container):
                 md_view = self.query_one("#schema_json_view", Markdown)
                 markdown_content = md_view.markdown
                 if markdown_content.startswith("```json\n") and markdown_content.endswith("\n```"):
-                    json_to_copy = markdown_content[len("```json\n") : -len("\n```")]
+                    json_to_copy = markdown_content[len("```json\n"): -len("\n```")]
                 elif markdown_content.startswith(
                     "```json\n// Error"
                 ) or markdown_content.startswith("```json\n{}"):
@@ -1153,6 +1156,16 @@ class MongoAnalyserApp(App[None]):
     current_db_name: reactive[str | None] = reactive(None)
     available_collections: reactive[List[str]] = reactive([])
     active_collection: reactive[str | None] = reactive(None)
+
+    def __init__(
+        self,
+        driver_class: Type[Driver] | None = None,
+        css_path: CSSPathType | None = None,
+        watch_css: bool = False,
+        ansi_color: bool = False,
+    ):
+        super().__init__(driver_class, css_path, watch_css, ansi_color)
+        self.dark = None
 
     def watch_available_collections(
         self, old_collections: List[str], new_collections: List[str]

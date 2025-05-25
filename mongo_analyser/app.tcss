@@ -28,11 +28,6 @@ Tabs {
     padding: 0 1;
 }
 
-Tab {
-    padding: 1; /* Padding within each tab label */
-    color: $text; /* Explicitly set text color for tab labels */
-}
-
 ContentSwitcher > Container { /* Style for the active view within ContentSwitcher */
     padding: 1;
     overflow: auto; /* Individual views should scroll their own content */
