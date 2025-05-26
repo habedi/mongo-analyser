@@ -1,34 +1,39 @@
 /* General App Styles */
 Screen {
-    background: $surface-darken-1; /* Slightly darker surface for the base screen */
+    background: $surface-darken-1;
     color: $text;
-    overflow: hidden auto; /* Allow screen to scroll if absolutely necessary, prefer content scrolling */
+    overflow: hidden auto;
 }
 
 Header {
     dock: top;
     height: 1;
-    background: $primary-background-darken-1; /* Darker blue */
+    background: $primary-background-darken-1;
     color: $text;
-    padding: 0 1; /* No vertical padding, horizontal padding for text */
-    text-style: bold; /* Make header text bold */
+    padding: 0 1;
+    text-style: bold;
 }
 
 Footer {
     dock: bottom;
     height: 1;
-    background: $primary-background-darken-2; /* Even darker blue */
+    background: $primary-background-darken-2;
     color: $text;
     padding: 0 1;
 }
 
 Tabs {
-    dock: top; /* Below Header */
+    dock: top;
     background: $primary-background;
     padding: 0 1;
 }
 
-ContentSwitcher > Container { /* Style for the active view within ContentSwitcher */
+/* Styles for the containers directly within ContentSwitcher (our main views) */
+/* Updated to match the new view IDs like #view_chat_content */
+ContentSwitcher > #view_chat_content,
+ContentSwitcher > #view_db_connection_content,
+ContentSwitcher > #view_schema_analysis_content,
+ContentSwitcher > #view_data_extraction_content {
     padding: 1;
     overflow: auto; /* Individual views should scroll their own content */
 }
@@ -39,7 +44,7 @@ ContentSwitcher > Container { /* Style for the active view within ContentSwitche
     text-style: bold underline;
     width: 100%;
     text-align: center;
-    color: $secondary; /* Use secondary color for titles */
+    color: $secondary;
 }
 .panel_title_small {
     padding-top: 1;
@@ -48,178 +53,193 @@ ContentSwitcher > Container { /* Style for the active view within ContentSwitche
     color: $secondary-darken-1;
 }
 
-/* ChatView Specific Styles */
-#chat_interface_horizontal_layout {
+/* ChatView Specific Styles (now targeting elements within #view_chat_content) */
+#view_chat_content #chat_interface_horizontal_layout {
     layout: horizontal;
     height: 100%;
     width: 100%;
 }
 
-.chat_column_main {
-    width: 2fr; /* Main chat area takes 2/3 of space */
+#view_chat_content .chat_column_main {
+    width: 2fr;
     height: 100%;
     padding-right: 1;
-    /* border-right: thick $primary-darken-2; */ /* Optional separator */
 }
 
-.chat_column_sidebar {
-    width: 1fr; /* Sidebar takes 1/3 of space */
+/* This class applies to the LLMConfigPanel widget instance.
+   More specific styles for its internals should be in LLMConfigPanel.DEFAULT_CSS */
+#view_chat_content .chat_column_sidebar {
+    width: 1fr;
     min-width: 30; /* Ensure sidebar has a minimum width */
     height: 100%;
-    padding: 0 1; /* Padding inside the sidebar */
-    border: round $primary-darken-1;
-    background: $primary-background-darken-3; /* Darker background for sidebar */
+    /* Basic container styling, specific widget styling is in LLMConfigPanel */
 }
 
-.chat_log_container {
-    height: 1fr; /* Takes up available vertical space in .chat_column_main */
+/* This is the VerticalScroll containing the Log or ChatMessageList */
+#view_chat_content .chat_log_container {
+    height: 1fr;
     border: round $primary-darken-2;
     margin-bottom: 1;
     padding: 1;
-    background: $boost; /* Slightly different background for log */
+    background: $boost;
 }
-#chat_log_widget {
+/* If you use the Log widget directly: */
+#view_chat_content #chat_log_widget {
     width: 100%;
 }
+/* If you use the custom ChatMessageList widget: */
+/* #view_chat_content #chat_message_list_widget { styles for the list itself } */
+/* #view_chat_content ChatMessageWidget { styles for individual messages } */
 
-.chat_input_container {
-    height: auto; /* Shrink to content: input (min 3 lines) + buttons */
+
+#view_chat_content .chat_input_container {
+    height: auto;
     width: 100%;
-    align: left bottom; /* Correction: horizontal vertical */
-    margin-top: 1; /* Space above input bar */
+    align: left bottom;
+    margin-top: 1;
 }
 
-.chat_input_text {
-    width: 1fr; /* Input field takes remaining space */
-    min-height: 3; /* Make input area a bit taller */
+/* This targets the Input widget if used directly, or Input within ChatInput widget */
+#view_chat_content .chat_input_text,
+#view_chat_content ChatInput > Input { /* If ChatInput is a container around an Input */
+    width: 1fr;
+    min-height: 3;
     margin-right: 1;
 }
 
-.chat_button {
-    width: auto; /* Fit content */
-    height: 100%; /* Match height of input field if it's single line, else align */
-    min-width: 8; /* Ensure buttons are not too small */
+#view_chat_content .chat_button {
+    width: auto;
+    height: 100%; /* Will align with single-line input. For multi-line, might need adjustment. */
+    min-width: 8;
 }
-#send_chat_message_button {
-    margin-right:1; /* Space between send and stop */
+#view_chat_content #send_chat_message_button {
+    margin-right:1;
 }
 
 
-#chat_config_panel {
-    /* padding is already on .chat_column_sidebar */
-}
-#chat_config_panel Label {
+/* Styles for LLMConfigPanel instance within ChatView (if not in widget's DEFAULT_CSS) */
+/*
+#view_chat_content #chat_llm_config_panel Label {
     margin-top: 1;
 }
-#chat_config_panel Input, #chat_config_panel Select {
+#view_chat_content #chat_llm_config_panel Input,
+#view_chat_content #chat_llm_config_panel Select {
     width: 100%;
 }
-#chat_config_panel Button.config_button { /* Specific button in config */
+#view_chat_content #chat_llm_config_panel Button.config_button {
     width: 100%;
-    margin-top: 2; /* More space before this main config button */
-    /* variant: success; <-- This is set in Python, Textual applies default styling. Remove from CSS. */
+    margin-top: 2;
 }
+*/
 
-/* DB Connection View */
-#view_db_connection { /* Target the view container */
-    padding: 1;
-}
-#view_db_connection Label {
+/* DB Connection View (using #view_db_connection_content) */
+#view_db_connection_content Label {
     margin-top: 1;
 }
-#view_db_connection Input {
+#view_db_connection_content Input {
     width: 100%;
 }
-#connect_mongo_button { /* More specific targeting */
+#view_db_connection_content #connect_mongo_button {
     margin-top: 1;
     width: 100%;
 }
-#mongo_connection_status_label {
+#view_db_connection_content #mongo_connection_status_label {
     margin-top: 1;
     padding: 1;
     width: 100%;
     text-align: center;
     border: round $background-lighten-2;
-    height: auto; /* Fit content */
+    height: auto;
 }
-#collections_title_label {
-    /* visibility: hidden; Initially hide if you prefer */
+#view_db_connection_content #collections_title_label {
     margin-top: 2;
 }
-.collections_list_container {
+#view_db_connection_content .collections_list_container { /* Applied to DataTable */
     margin-top:1;
     border: round $primary-darken-1;
-    height: 15; /* Increased from 10, as per previous update */
+    height: 15;
     padding:1;
     background: $primary-background-darken-3;
     overflow: auto;
 }
-.collections_list_container Label { /* Style for collection names */
-    padding: 0 1;
-}
+/* No need for .collections_list_container Label if DataTable is used */
 
 
-/* Schema Analysis View */
-#view_schema_analysis Input {
+/* Schema Analysis View (using #view_schema_analysis_content) */
+#view_schema_analysis_content Input {
     width: 100%;
     margin-bottom:1;
 }
-#analyze_schema_button { /* More specific targeting */
+#view_schema_analysis_content #analyze_schema_button {
     width: 100%;
     margin-top:1;
     margin-bottom:1;
 }
-#schema_results_table {
+#view_schema_analysis_content #schema_results_table { /* Applied to DataTable */
     margin-top:1;
-    height: 20; /* Increased from 15, as per previous update */
+    height: 20;
     border: round $primary-darken-1;
     overflow: auto;
 }
-.json_view_container {
+#view_schema_analysis_content .json_view_container { /* Applied to VerticalScroll */
     margin-top:1;
-    height: 15; /* Increased from 10, as per previous update */
+    height: 15;
     border: round $primary-darken-1;
     background: $primary-background-darken-3;
     padding: 1;
     overflow: auto;
 }
-
-/* Copy buttons and feedback for SchemaAnalysisView (from previous update) */
-.copy_button_container {
+#view_schema_analysis_content .copy_button_container {
     layout: horizontal;
     height: auto;
     margin-top: 1;
     width: 100%;
-    align: center middle; /* Center buttons */
+    align: center middle;
 }
-
-.copy_button_container Button {
-    width: 1fr; /* Distribute space among buttons */
-    margin: 0 1; /* Add some horizontal margin */
+#view_schema_analysis_content .copy_button_container Button {
+    width: 1fr;
+    margin: 0 1;
 }
-#schema_copy_feedback_label {
+#view_schema_analysis_content #schema_copy_feedback_label {
     width: 100%;
     text-align: center;
     height: 1;
     margin-top: 1;
-    color: $success; /* Use success color for feedback */
+    color: $success;
 }
 
 
-/* Data Extraction View */
-#view_data_extraction Input {
+/* Data Extraction View (using #view_data_extraction_content) */
+#view_data_extraction_content Input {
     width: 100%;
     margin-bottom:1;
 }
-#start_extraction_button { /* More specific targeting */
+#view_data_extraction_content #start_extraction_button {
     width: 100%;
     margin-top:1;
     margin-bottom:1;
 }
-#extraction_log {
-    height: 20; /* Example height */
+#view_data_extraction_content #extraction_log { /* Applied to Log widget */
+    height: 20;
     border: round $primary-darken-1;
     background: $primary-background-darken-3;
     overflow: auto;
     padding:1;
 }
+
+/* You might add general styles for your new custom widgets here,
+   or rely on their DEFAULT_CSS property. For example: */
+/*
+LLMConfigPanel {
+    border: round $accent;
+    padding: 1;
+}
+
+ChatMessageWidget {
+    padding: 0 1;
+    margin-bottom: 1;
+}
+ChatInput Input { // If ChatInput wraps a standard Input
+    border: round $secondary;
+}
+*/

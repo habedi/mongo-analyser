@@ -220,7 +220,9 @@ class SchemaAnalyser:
         if not rows:
             print("No data to display in table.")
             return
-        col_widths = [max(len(str(item)) for item in col) for col in zip(*([headers] + rows))]
+        col_widths = [
+            max(len(str(item)) for item in col) for col in zip(*([headers] + rows), strict=False)
+        ]
 
         def draw_separator(sep_type: str) -> None:
             parts = {
@@ -235,7 +237,9 @@ class SchemaAnalyser:
 
         def draw_row(items: List[Any]) -> None:
             row_str = (
-                "│ " + " │ ".join(f"{item!s:<{w}}" for item, w in zip(items, col_widths)) + " │"
+                "│ "
+                + " │ ".join(f"{item!s:<{w}}" for item, w in zip(items, col_widths, strict=False))
+                + " │"
             )
             print(row_str)
 

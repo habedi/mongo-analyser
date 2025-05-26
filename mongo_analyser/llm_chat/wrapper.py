@@ -135,13 +135,13 @@ class LiteLLMChat(LLMChat):
             if (
                 k
                 not in [
-                "model_name",
-                "provider_hint",
-                "api_key",
-                "base_url",
-                "temperature",
-                "max_tokens",
-            ]
+                    "model_name",
+                    "provider_hint",
+                    "api_key",
+                    "base_url",
+                    "temperature",
+                    "max_tokens",
+                ]
                 and k not in call_kwargs
             ):
                 call_kwargs[k] = v
@@ -184,14 +184,14 @@ class LiteLLMChat(LLMChat):
             if (
                 k
                 not in [
-                "model_name",
-                "provider_hint",
-                "api_key",
-                "base_url",
-                "temperature",
-                "max_tokens",
-                "stream",
-            ]
+                    "model_name",
+                    "provider_hint",
+                    "api_key",
+                    "base_url",
+                    "temperature",
+                    "max_tokens",
+                    "stream",
+                ]
                 and k not in call_kwargs
             ):
                 call_kwargs[k] = v
@@ -259,9 +259,9 @@ class LiteLLMChat(LLMChat):
                                 if not any(
                                     blocked_name in m for blocked_name in specific_ollama_blocklist
                                 )
-                                   and m.count("-") < 3
-                                   and not _ends_with_hyphen_numbers(m)
-                                   and not any(suffix in m for suffix in common_suffix_blocklist)
+                                and m.count("-") < 3
+                                and not _ends_with_hyphen_numbers(m)
+                                and not any(suffix in m for suffix in common_suffix_blocklist)
                             ]
                             logger.info(
                                 f"Dynamically found {len(ollama_models_raw)} models, filtered to {len(filtered_ollama_models)} Ollama models."
@@ -296,8 +296,8 @@ class LiteLLMChat(LLMChat):
                             and model_name_part.count("-") < 3
                             and not _ends_with_hyphen_numbers(model_name_part)
                             and not any(
-                            suffix in model_name_part for suffix in common_suffix_blocklist
-                        )
+                                suffix in model_name_part for suffix in common_suffix_blocklist
+                            )
                         ):
                             ollama_models_from_static_list.append(model_name_part)
 
@@ -339,8 +339,8 @@ class LiteLLMChat(LLMChat):
                         if (
                             model_base_name not in specific_provider_blocklist
                             and not any(
-                            suffix in model_base_name for suffix in common_suffix_blocklist
-                        )
+                                suffix in model_base_name for suffix in common_suffix_blocklist
+                            )
                             and model_base_name.count("-") < 3
                             and not _ends_with_hyphen_numbers(model_base_name)
                         ):
