@@ -145,6 +145,7 @@ def main_interactive_tui():  # Renamed to avoid conflict if run directly
         filename=log_file_path,
         filemode="a",
         format="%(asctime)s - %(name)s.%(funcName)s:%(lineno)d - %(levelname)s - %(message)s",
+        force=True,
     )
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.WARNING)
