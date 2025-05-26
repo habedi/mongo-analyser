@@ -1,6 +1,9 @@
+import csv
 import functools
+import io
 import json
 import logging
+from pathlib import Path  # For Path object
 from typing import Any, Dict, List, Tuple
 
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
@@ -13,7 +16,7 @@ from textual.reactive import reactive
 from textual.widgets import Button, DataTable, Input, Label, Markdown, Select, Static
 from textual.worker import Worker
 
-from mongo_analyser.core.analyser import SchemaAnalyser  # Assuming SchemaAnalyser is in core
+from mongo_analyser.core.analyser import SchemaAnalyser
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,7 @@ logger = logging.getLogger(__name__)
 class SchemaAnalysisView(Container):
     analysis_status = reactive(Text("Enter collection and click Analyze."))
     schema_copy_feedback = reactive(Text(""))
+    current_hierarchical_schema: Dict = {}  # To store the schema for saving
 
     def compose(self) -> ComposeResult:
         yield Label("Schema Analysis", classes="panel_title")
@@ -29,7 +33,7 @@ class SchemaAnalysisView(Container):
             [],
             prompt="Connect to DB to see collections",
             id="schema_collection_select",
-            allow_blank=True,  # allow_blank is true by default
+            allow_blank=True,
         )
         yield Label("Sample Size (-1 for all):")
         yield Input(id="schema_sample_size_input", value="1000")
@@ -40,16 +44,28 @@ class SchemaAnalysisView(Container):
         yield DataTable(id="schema_results_table", show_header=True, show_cursor=True)
 
         yield Label("Hierarchical Schema (JSON):", classes="panel_title_small")
-        with VerticalScroll(classes="json_view_container"):  # Ensure this class is in app.tcss
+        with VerticalScroll(classes="json_view_container"):
             yield Markdown("```json\n{}\n```", id="schema_json_view")
 
-        with Horizontal(classes="copy_button_container"):  # Ensure this class is in app.tcss
+        yield Label(
+            "Save Schema JSON to (e.g., output/my_schema.json):", classes="panel_title_small"
+        )
+        yield Input(id="schema_save_path_input", placeholder="output/schema.json")
+        yield Button("Save Schema to File", id="save_schema_json_button")
+
+        with Horizontal(classes="copy_button_container"):
             yield Button("Copy Cell Value", id="copy_cell_button")
             yield Button("Copy Full JSON", id="copy_json_button")
+            yield Button("Copy Table as CSV", id="copy_table_csv_button")
         yield Static(self.schema_copy_feedback, id="schema_copy_feedback_label")
 
     def on_mount(self) -> None:
-        self.update_collection_select()  # Call method to populate on mount
+        self.update_collection_select()
+        # Set initial save path based on active collection if available
+        if self.app.active_collection:
+            self.query_one(
+                "#schema_save_path_input", Input
+            ).value = f"output/{self.app.active_collection}_schema.json"
 
     def focus_default_widget(self) -> None:
         try:
@@ -57,10 +73,10 @@ class SchemaAnalysisView(Container):
         except NoMatches:
             logger.debug("SchemaAnalysisView: Could not focus default input.")
 
-    def update_collection_select(self) -> None:  # Renamed from _update_collection_select
+    def update_collection_select(self) -> None:
         try:
             select_widget = self.query_one("#schema_collection_select", Select)
-            # collections is a List[str] from app.available_collections
+            save_path_input = self.query_one("#schema_save_path_input", Input)
             collections = self.app.available_collections
             current_active_collection = self.app.active_collection
 
@@ -73,27 +89,43 @@ class SchemaAnalysisView(Container):
 
                 if current_active_collection and current_active_collection in collections:
                     select_widget.value = current_active_collection
+                    save_path_input.value = f"output/{current_active_collection}_schema.json"
                 elif current_value != Select.BLANK and current_value in collections:
-                    # Keep current selection if valid and no specific active_collection
-                    pass  # Value is already set
-                elif select_widget.value not in collections:  # Clear if invalid
+                    save_path_input.value = f"output/{current_value!s}_schema.json"
+                    pass
+                elif select_widget.value not in collections:
                     select_widget.value = Select.BLANK
+                    save_path_input.value = "output/schema.json"  # Default if no collection
             else:
                 select_widget.set_options([])
                 select_widget.prompt = "Connect to DB to see collections"
                 select_widget.disabled = True
                 select_widget.value = Select.BLANK
+                save_path_input.value = "output/schema.json"  # Default if no collections
         except NoMatches:
-            logger.warning("SchemaAnalysisView: #schema_collection_select not found for update.")
+            logger.warning(
+                "SchemaAnalysisView: #schema_collection_select or #schema_save_path_input not found for update."
+            )
         except Exception as e:
             logger.error(f"Error in update_collection_select: {e}", exc_info=True)
 
     async def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "schema_collection_select":
             if event.value is not None and event.value != Select.BLANK:
-                self.app.active_collection = str(event.value)
-            else:  # Handles Select.BLANK
+                collection_name = str(event.value)
+                self.app.active_collection = collection_name
+                try:
+                    self.query_one(
+                        "#schema_save_path_input", Input
+                    ).value = f"output/{collection_name}_schema.json"
+                except NoMatches:
+                    pass
+            else:
                 self.app.active_collection = None
+                try:
+                    self.query_one("#schema_save_path_input", Input).value = "output/schema.json"
+                except NoMatches:
+                    pass
 
     def watch_analysis_status(self, new_status: Text) -> None:
         if self.is_mounted:
@@ -107,10 +139,13 @@ class SchemaAnalysisView(Container):
             try:
                 feedback_label = self.query_one("#schema_copy_feedback_label", Static)
                 feedback_label.update(new_feedback)
-                if new_feedback.plain:  # Check if there's actual text
-                    feedback_label.set_timer(2, feedback_label.update, Text(""))
+                if new_feedback.plain:
+                    clear_feedback_callback = functools.partial(feedback_label.update, Text(""))
+                    feedback_label.set_timer(2, clear_feedback_callback)
             except NoMatches:
                 logger.warning("Could not find #schema_copy_feedback_label.")
+            except Exception as e:
+                logger.error(f"Error in watch_schema_copy_feedback: {e}", exc_info=True)
 
     def _prepare_analysis_inputs(
         self,
@@ -161,8 +196,9 @@ class SchemaAnalysisView(Container):
 
             self.analysis_status = Text.from_markup("[#EBCB8B]Preparing analysis...[/]")
             self.schema_copy_feedback = Text("")
-            table.clear(columns=True)  # Keep columns if you want to reuse them
+            table.clear(columns=True)
             md_view.update("```json\n{}\n```")
+            self.current_hierarchical_schema = {}
 
             uri, db_name, collection_name, sample_size_str, prep_error_text = (
                 self._prepare_analysis_inputs()
@@ -179,7 +215,6 @@ class SchemaAnalysisView(Container):
             )
 
             try:
-                # _run_analysis_task needs to be defined within this class or imported
                 callable_with_args = functools.partial(
                     self._run_analysis_task, uri, db_name, collection_name, sample_size
                 )
@@ -198,9 +233,8 @@ class SchemaAnalysisView(Container):
                     return
 
                 if schema_data and field_stats_data and hierarchical_schema is not None:
-                    table.add_columns(
-                        "Field", "Type", "Cardinality", "Missing (%)"
-                    )  # Add columns if cleared
+                    self.current_hierarchical_schema = hierarchical_schema  # Store for saving
+                    table.add_columns("Field", "Type", "Cardinality", "Missing (%)")
                     rows_for_table: List[Tuple[Any, ...]] = []
                     for field, details in schema_data.items():
                         field_s_data = field_stats_data.get(field, {})
@@ -229,7 +263,7 @@ class SchemaAnalysisView(Container):
                         self.analysis_status = Text.from_markup(
                             "[#D08770]Analysis complete (schema display error).[/]"
                         )
-                else:  # No data but no error_msg implies empty result
+                else:
                     self.analysis_status = Text.from_markup(
                         "[#D08770]Analysis completed with no data.[/]"
                     )
@@ -237,51 +271,108 @@ class SchemaAnalysisView(Container):
                 logger.error(f"Schema analysis handler error: {e}", exc_info=True)
                 self.analysis_status = Text.from_markup(f"[#BF616A]Display Error: {e!s}[/]")
 
+        elif event.button.id == "save_schema_json_button":
+            save_path_str = self.query_one("#schema_save_path_input", Input).value.strip()
+            if not save_path_str:
+                self.schema_copy_feedback = Text.from_markup(
+                    "[#BF616A]Schema save path cannot be empty.[/]"
+                )
+                self.app.notify("Schema save path empty.", title="Save Error", severity="error")
+                return
+            if not self.current_hierarchical_schema:
+                self.schema_copy_feedback = Text.from_markup(
+                    "[#D08770]No schema data to save. Analyze first.[/]"
+                )
+                self.app.notify("No schema to save.", title="Save Info", severity="warning")
+                return
+
+            save_path = Path(save_path_str)
+            try:
+                SchemaAnalyser.save_schema_to_json(self.current_hierarchical_schema, save_path)
+                self.schema_copy_feedback = Text.from_markup(
+                    f"[#A3BE8C]Schema saved to {save_path}[/]"
+                )
+                self.app.notify(f"Schema saved to {save_path}", title="Save Success")
+            except Exception as e:
+                logger.error(f"Error saving schema to file: {e}", exc_info=True)
+                self.schema_copy_feedback = Text.from_markup(
+                    f"[#BF616A]Error saving schema: {e!s}[/]"
+                )
+                self.app.notify(f"Error saving schema: {e!s}", title="Save Error", severity="error")
+
         elif event.button.id == "copy_json_button":
-            # (Keep existing copy_json_button logic, ensure it uses self.app.copy_to_clipboard)
             try:
                 md_view = self.query_one("#schema_json_view", Markdown)
-                markdown_content = md_view.markdown
-                # ... (rest of the logic to extract JSON)
-                json_to_copy = "..."  # Placeholder for extracted JSON
-                if markdown_content.startswith("```json\n") and markdown_content.endswith("\n```"):
-                    json_to_copy = markdown_content[len("```json\n") : -len("\n```")]
-                elif markdown_content.startswith(
-                    "```json\n// Error"
-                ) or markdown_content.startswith("```json\n{}"):
-                    json_to_copy = (
-                        "{}" if "Error" not in markdown_content else "// Error in schema data"
-                    )
+                markdown_content = ""
+                if hasattr(md_view, "document"):
+                    markdown_content = md_view.document
+                elif hasattr(md_view, "_markdown"):
+                    markdown_content = md_view._markdown
                 else:
-                    json_to_copy = markdown_content  # Fallback
+                    logger.warning(
+                        "Could not determine how to get markdown content from Markdown widget."
+                    )
+                    raise AttributeError("Cannot get markdown content.")
+
+                json_to_copy = "{}"
+                if markdown_content.startswith("```json\n") and markdown_content.endswith("\n```"):
+                    extracted_json = markdown_content[len("```json\n") : -len("\n```")]
+                    if extracted_json.strip() and not extracted_json.strip().startswith("// Error"):
+                        json_to_copy = extracted_json
+                    elif extracted_json.strip().startswith("// Error"):
+                        json_to_copy = "// Error in schema data"
+                elif markdown_content.strip() == "{}":
+                    json_to_copy = "{}"
+                elif "Error: Schema non-serializable" in markdown_content:
+                    json_to_copy = "// Error: Schema non-serializable."
 
                 if json_to_copy:
-                    self.app.copy_to_clipboard(json_to_copy)  # Use app's method
+                    self.app.copy_to_clipboard(json_to_copy)
                     self.schema_copy_feedback = Text.from_markup(
                         "[#A3BE8C]Full JSON Schema Copied![/]"
                     )
+                    self.app.notify("JSON schema copied to clipboard.", title="Copy Success")
                 else:
                     self.schema_copy_feedback = Text.from_markup(
                         "[#D08770]No JSON content to copy.[/]"
                     )
+                    self.app.notify(
+                        "No JSON content to copy.", title="Copy Info", severity="warning"
+                    )
+            except AttributeError as ae:
+                logger.error(f"Error accessing Markdown content: {ae}", exc_info=True)
+                self.schema_copy_feedback = Text.from_markup(
+                    "[#BF616A]Error accessing Markdown content.[/]"
+                )
+                self.app.notify(
+                    "Error accessing Markdown content.", title="Copy Error", severity="error"
+                )
             except Exception as e:
                 logger.error(f"Error copying JSON: {e}", exc_info=True)
                 self.schema_copy_feedback = Text.from_markup("[#BF616A]Error copying JSON.[/]")
+                self.app.notify("Error copying JSON.", title="Copy Error", severity="error")
 
         elif event.button.id == "copy_cell_button":
-            # (Keep existing copy_cell_button logic, ensure it uses self.app.copy_to_clipboard)
             try:
                 table = self.query_one("#schema_results_table", DataTable)
                 if table.row_count == 0:
                     self.schema_copy_feedback = Text.from_markup(
                         "[#D08770]No data in table to copy.[/]"
                     )
+                    self.app.notify(
+                        "No data in table to copy.", title="Copy Info", severity="warning"
+                    )
                     return
-                # ... (rest of the logic)
+
                 cursor_row, cursor_col = table.cursor_coordinate
-                if cursor_row < 0 or cursor_col < 0:
+                if (
+                    cursor_row < 0 or cursor_col < 0
+                ):  # Should not happen if table has rows and cursor
                     self.schema_copy_feedback = Text.from_markup(
-                        "[#D08770]No cell selected in table.[/]"
+                        "[#D08770]No cell selected in table (or table empty).[/]"
+                    )
+                    self.app.notify(
+                        "No cell selected in table.", title="Copy Info", severity="warning"
                     )
                     return
 
@@ -290,16 +381,56 @@ class SchemaAnalysisView(Container):
                 self.schema_copy_feedback = Text.from_markup(
                     f"[#A3BE8C]Cell ({cursor_row},{cursor_col}) value copied![/]"
                 )
+                self.app.notify(f"Cell ({cursor_row},{cursor_col}) copied.", title="Copy Success")
             except Exception as e:
                 logger.error(f"Error copying cell value: {e}", exc_info=True)
                 self.schema_copy_feedback = Text.from_markup(
                     "[#BF616A]Error copying cell value.[/]"
                 )
+                self.app.notify("Error copying cell value.", title="Copy Error", severity="error")
+
+        elif event.button.id == "copy_table_csv_button":
+            try:
+                table = self.query_one("#schema_results_table", DataTable)
+                if table.row_count == 0:
+                    self.schema_copy_feedback = Text.from_markup(
+                        "[#D08770]No data in table to copy as CSV.[/]"
+                    )
+                    self.app.notify(
+                        "No data in table for CSV.", title="Copy Info", severity="warning"
+                    )
+                    return
+
+                output = io.StringIO()
+                csv_writer = csv.writer(output, quoting=csv.QUOTE_ALL)
+                headers = []
+                for column_key in table.columns:
+                    column_label = table.columns[column_key].label
+                    headers.append(
+                        str(column_label.plain if hasattr(column_label, "plain") else column_label)
+                    )
+                csv_writer.writerow(headers)
+
+                for r_idx in range(table.row_count):
+                    row_display_data = table.get_row_at(r_idx)
+                    row_values = [str(cell) for cell in row_display_data]
+                    csv_writer.writerow(row_values)
+                csv_data = output.getvalue()
+                self.app.copy_to_clipboard(csv_data)
+                self.schema_copy_feedback = Text.from_markup(
+                    "[#A3BE8C]Table copied to clipboard as CSV![/]"
+                )
+                self.app.notify("Table copied as CSV.", title="Copy Success")
+            except Exception as e:
+                logger.error(f"Error copying table as CSV: {e}", exc_info=True)
+                self.schema_copy_feedback = Text.from_markup(
+                    "[#BF616A]Error copying table as CSV.[/]"
+                )
+                self.app.notify("Error copying table as CSV.", title="Copy Error", severity="error")
 
     def _run_analysis_task(
         self, uri: str, db_name: str, collection_name: str, sample_size: int
     ) -> Tuple[Dict | None, Dict | None, Dict | None, str | None]:
-        # This method can stay as is, since it's pure logic
         try:
             collection_obj = SchemaAnalyser.get_collection(uri, db_name, collection_name)
             schema_data, field_stats_data = SchemaAnalyser.infer_schema_and_field_stats(

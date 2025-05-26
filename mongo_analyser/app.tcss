@@ -29,7 +29,6 @@ Tabs {
 }
 
 /* Styles for the containers directly within ContentSwitcher (our main views) */
-/* Updated to match the new view IDs like #view_chat_content */
 ContentSwitcher > #view_chat_content,
 ContentSwitcher > #view_db_connection_content,
 ContentSwitcher > #view_schema_analysis_content,
@@ -66,16 +65,12 @@ ContentSwitcher > #view_data_extraction_content {
     padding-right: 1;
 }
 
-/* This class applies to the LLMConfigPanel widget instance.
-   More specific styles for its internals should be in LLMConfigPanel.DEFAULT_CSS */
 #view_chat_content .chat_column_sidebar {
     width: 1fr;
-    min-width: 30; /* Ensure sidebar has a minimum width */
+    min-width: 30;
     height: 100%;
-    /* Basic container styling, specific widget styling is in LLMConfigPanel */
 }
 
-/* This is the VerticalScroll containing the Log or ChatMessageList */
 #view_chat_content .chat_log_container {
     height: 1fr;
     border: round $primary-darken-2;
@@ -83,14 +78,10 @@ ContentSwitcher > #view_data_extraction_content {
     padding: 1;
     background: $boost;
 }
-/* If you use the Log widget directly: */
+
 #view_chat_content #chat_log_widget {
     width: 100%;
 }
-/* If you use the custom ChatMessageList widget: */
-/* #view_chat_content #chat_message_list_widget { styles for the list itself } */
-/* #view_chat_content ChatMessageWidget { styles for individual messages } */
-
 
 #view_chat_content .chat_input_container {
     height: auto;
@@ -99,9 +90,8 @@ ContentSwitcher > #view_data_extraction_content {
     margin-top: 1;
 }
 
-/* This targets the Input widget if used directly, or Input within ChatInput widget */
 #view_chat_content .chat_input_text,
-#view_chat_content ChatInput > Input { /* If ChatInput is a container around an Input */
+#view_chat_content ChatInput > Input {
     width: 1fr;
     min-height: 3;
     margin-right: 1;
@@ -109,28 +99,12 @@ ContentSwitcher > #view_data_extraction_content {
 
 #view_chat_content .chat_button {
     width: auto;
-    height: 100%; /* Will align with single-line input. For multi-line, might need adjustment. */
+    height: 100%;
     min-width: 8;
 }
 #view_chat_content #send_chat_message_button {
     margin-right:1;
 }
-
-
-/* Styles for LLMConfigPanel instance within ChatView (if not in widget's DEFAULT_CSS) */
-/*
-#view_chat_content #chat_llm_config_panel Label {
-    margin-top: 1;
-}
-#view_chat_content #chat_llm_config_panel Input,
-#view_chat_content #chat_llm_config_panel Select {
-    width: 100%;
-}
-#view_chat_content #chat_llm_config_panel Button.config_button {
-    width: 100%;
-    margin-top: 2;
-}
-*/
 
 /* DB Connection View (using #view_db_connection_content) */
 #view_db_connection_content Label {
@@ -162,8 +136,6 @@ ContentSwitcher > #view_data_extraction_content {
     background: $primary-background-darken-3;
     overflow: auto;
 }
-/* No need for .collections_list_container Label if DataTable is used */
-
 
 /* Schema Analysis View (using #view_schema_analysis_content) */
 #view_schema_analysis_content Input {
@@ -175,15 +147,20 @@ ContentSwitcher > #view_data_extraction_content {
     margin-top:1;
     margin-bottom:1;
 }
-#view_schema_analysis_content #schema_results_table { /* Applied to DataTable */
+#view_schema_analysis_content #save_schema_json_button { /* Style for the new save button */
+    width: 100%;
     margin-top:1;
-    height: 20;
+    margin-bottom:1;
+}
+#view_schema_analysis_content #schema_results_table {
+    margin-top:1;
+    height: 20; /* Adjust as needed */
     border: round $primary-darken-1;
     overflow: auto;
 }
-#view_schema_analysis_content .json_view_container { /* Applied to VerticalScroll */
+#view_schema_analysis_content .json_view_container {
     margin-top:1;
-    height: 15;
+    height: 15; /* Adjust as needed */
     border: round $primary-darken-1;
     background: $primary-background-darken-3;
     padding: 1;
@@ -214,32 +191,34 @@ ContentSwitcher > #view_data_extraction_content {
     width: 100%;
     margin-bottom:1;
 }
+
+/* Styling for the Horizontal container holding the extraction buttons */
+#view_data_extraction_content #extraction_actions_bar {
+    width: 100%;
+    height: auto; /* Or a fixed height like 3 or 5 */
+    margin-top: 1;
+    /* layout: horizontal; /* This is inherent to Horizontal widget */
+    /* align: center middle; /* Optional: To center buttons if they don't fill width */
+}
+
+/* Styling for the action buttons within the extraction_actions_bar */
+#view_data_extraction_content #extraction_actions_bar .action_button {
+    width: 1fr;  /* Distribute space equally among buttons in the bar */
+    margin: 0 1; /* Add some horizontal spacing between buttons */
+}
+
+/* REMOVED old style for #start_extraction_button to avoid conflict:
 #view_data_extraction_content #start_extraction_button {
     width: 100%;
     margin-top:1;
     margin-bottom:1;
 }
-#view_data_extraction_content #extraction_log { /* Applied to Log widget */
-    height: 20;
+*/
+
+#view_data_extraction_content #extraction_log {
+    height: 20; /* Adjust as needed */
     border: round $primary-darken-1;
     background: $primary-background-darken-3;
     overflow: auto;
     padding:1;
 }
-
-/* You might add general styles for your new custom widgets here,
-   or rely on their DEFAULT_CSS property. For example: */
-/*
-LLMConfigPanel {
-    border: round $accent;
-    padding: 1;
-}
-
-ChatMessageWidget {
-    padding: 0 1;
-    margin-bottom: 1;
-}
-ChatInput Input { // If ChatInput wraps a standard Input
-    border: round $secondary;
-}
-*/

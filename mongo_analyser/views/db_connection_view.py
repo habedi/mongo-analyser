@@ -2,9 +2,10 @@ import logging
 import os
 from typing import Any, Dict, List
 
-from rich.text import Text  # For styled status
+from rich.text import Text
+from textual import on  # For DataTable event
 from textual.app import ComposeResult
-from textual.containers import Container  # Removed Horizontal as it's not directly used
+from textual.containers import Container
 from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widgets import Button, DataTable, Input, Label, Static
@@ -17,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 
 def _format_bytes_tui(size_bytes: Any) -> str:
-    # (Keep the existing _format_bytes_tui function here)
     import math
 
     if size_bytes is None or not isinstance(size_bytes, (int, float)) or size_bytes < 0:
@@ -50,13 +50,16 @@ class DBConnectionView(Container):
         yield Button("Connect & List Collections", variant="primary", id="connect_mongo_button")
         yield Static(self.connection_status, id="mongo_connection_status_label")
 
-        # Potentially use CollectionStatsWidget here
-        yield Label("Collections:", classes="panel_title_small", id="collections_title_label")
+        yield Label(
+            "Collections (select row to set as active):",
+            classes="panel_title_small",
+            id="collections_title_label",
+        )
         yield DataTable(
             id="collections_data_table",
             show_header=True,
             show_cursor=True,
-            classes="collections_list_container",  # Ensure this class is in app.tcss
+            classes="collections_list_container",
         )
 
     def on_mount(self) -> None:
@@ -154,7 +157,8 @@ class DBConnectionView(Container):
             title_label = self.query_one("#collections_title_label", Label)
 
             self.connection_status = Text.from_markup("[#EBCB8B]Connecting...[/]")
-            self.app.available_collections = []  # Triggers watch method
+            self.app.available_collections = []
+            self.app.active_collection = None  # Reset active collection
             collections_table.clear()
             title_label.visible = False
             collections_table.visible = False
@@ -173,7 +177,7 @@ class DBConnectionView(Container):
                     connected_db_name,
                 ) = await worker.wait()
 
-                self.connection_status = status_msg_text  # This will be styled Text
+                self.connection_status = status_msg_text
                 if success and connected_uri and connected_db_name:
                     self.app.current_mongo_uri = connected_uri
                     self.app.current_db_name = connected_db_name
@@ -188,19 +192,17 @@ class DBConnectionView(Container):
                                 _format_bytes_tui(coll_data["avgObjSize"]),
                                 _format_bytes_tui(coll_data["size"]),
                                 _format_bytes_tui(coll_data["storageSize"]),
+                                key=coll_data["name"],  # Use collection name as row key
                             )
-                    else:  # Success but no collections
+                    else:
                         title_label.visible = True
-                        collections_table.visible = True  # Show table with message
+                        collections_table.visible = True
                         collections_table.add_row("No collections found in DB.", "", "", "", "")
-                else:  # Failure
+                else:
                     self.app.current_mongo_uri = None
                     self.app.current_db_name = None
-                    # self.app.available_collections = [] # Already cleared
                     collections_table.clear()
-                    collections_table.add_row(
-                        status_msg_text.plain, "", "", "", ""
-                    )  # Show error in table
+                    collections_table.add_row(status_msg_text.plain, "", "", "", "")
                     title_label.visible = True
                     collections_table.visible = True
             except Exception as e:
@@ -213,3 +215,18 @@ class DBConnectionView(Container):
                 self.app.current_db_name = None
                 title_label.visible = True
                 collections_table.visible = True
+
+    @on(DataTable.RowSelected)
+    def on_collection_selected(self, event: DataTable.RowSelected) -> None:
+        if event.control.id == "collections_data_table":
+            if event.row_key and event.row_key.value:
+                selected_collection_name = str(event.row_key.value)
+                self.app.active_collection = selected_collection_name
+                logger.info(
+                    f"DBConnectionView: Collection '{selected_collection_name}' set as active."
+                )
+                self.app.notify(f"Collection '{selected_collection_name}' set as active.")
+            else:  # Should not happen if row_key is always set
+                logger.warning(
+                    "DBConnectionView: RowSelected event triggered with no row_key value."
+                )

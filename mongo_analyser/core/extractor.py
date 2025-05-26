@@ -15,6 +15,7 @@ from pymongo.errors import (
 from pymongo.errors import (
     OperationFailure as PyMongoOperationFailure,
 )
+from textual.worker import WorkerCancelled, get_current_worker  # Added WorkerCancelled
 
 from . import db as db_manager
 from . import shared
@@ -132,9 +133,7 @@ class DataExtractor:
         ) or isinstance(val, Binary):
             return val.hex()
 
-        if isinstance(
-            val, (str, int, float, bool, dict)
-        ):  # dict here is a fallback if not handled by recursive convert_to_json_compatible
+        if isinstance(val, (str, int, float, bool, dict)):
             return val
 
         logger.warning(
@@ -182,7 +181,7 @@ class DataExtractor:
         mongo_uri: str,
         db_name: str,
         collection_name: str,
-        schema: Dict,  # This is the hierarchical schema
+        schema: Dict,
         output_file: Union[str, Path],
         tz: Union[None, pytz.timezone],
         batch_size: int,
@@ -192,19 +191,33 @@ class DataExtractor:
         output_p = Path(output_file)
         output_p.parent.mkdir(parents=True, exist_ok=True)
 
+        worker = get_current_worker()
+        if worker and worker.is_cancelled:
+            logger.info("Data extraction cancelled before database connection.")
+            raise WorkerCancelled()
+
         if not db_manager.db_connection_active(
             uri=mongo_uri, db_name=db_name, server_timeout_ms=server_timeout_ms
         ):
+            # Check for cancellation again if db_connection_active was slow
+            if worker and worker.is_cancelled:
+                logger.info("Data extraction cancelled during/after database connection attempt.")
+                raise WorkerCancelled()
             raise PyMongoConnectionFailure(
                 f"MongoDB connection failed for data extraction: {mongo_uri}"
             )
 
         database = db_manager.get_mongo_db()
         collection = database[collection_name]
+        data_cursor = None  # Initialize to None
 
         try:
+            if worker and worker.is_cancelled:
+                logger.info("Data extraction cancelled before finding documents.")
+                raise WorkerCancelled()
+
             data_cursor = (
-                collection.find(no_cursor_timeout=True)  # Changed to True
+                collection.find(no_cursor_timeout=True)
                 .sort("_id", DESCENDING)
                 .batch_size(batch_size)
             )
@@ -223,6 +236,10 @@ class DataExtractor:
                 f.write("[\n")
                 first_doc = True
                 for doc in data_cursor:
+                    if worker and worker.is_cancelled:
+                        logger.info(f"Data extraction cancelled by worker at document {count + 1}.")
+                        raise WorkerCancelled()
+
                     count += 1
                     converted_doc = DataExtractor.convert_to_json_compatible(doc, schema, tz)
                     if not first_doc:
@@ -231,17 +248,35 @@ class DataExtractor:
                     first_doc = False
                     if count % batch_size == 0:
                         logger.info(f"Processed {count} documents...")
-                f.write("\n]\n")
-            logger.info(f"Successfully extracted {count} documents to {output_p}")
 
+                # This part is reached only if the loop completes without WorkerCancelled
+                f.write("\n]\n")
+                logger.info(f"Successfully extracted {count} documents to {output_p}")
+
+        except WorkerCancelled:
+            logger.warning(
+                f"Extraction process cancelled. Output file {output_p} may be incomplete."
+            )
+            # Do not write closing bracket if cancelled mid-array
+            raise  # Re-raise to be handled by the calling worker context
         except PyMongoOperationFailure as e:
+            if worker and worker.is_cancelled:  # Check if cancelled during operation
+                logger.warning(f"Extraction cancelled during MongoDB operation: {e}")
+                raise WorkerCancelled()
             logger.error(
                 f"MongoDB operation failure during data extraction from {db_name}.{collection_name}: {e}"
             )
             raise
         except IOError as e:
+            if worker and worker.is_cancelled:  # Check if cancelled during IO
+                logger.warning(f"Extraction cancelled during file IO: {e}")
+                raise WorkerCancelled()
             logger.error(f"Failed to write to output file {output_p}: {e}")
             raise
+        finally:
+            if data_cursor is not None:
+                data_cursor.close()
+                logger.debug("MongoDB cursor closed.")
 
 
 def get_newest_documents(
@@ -261,6 +296,7 @@ def get_newest_documents(
 
     database = db_manager.get_mongo_db()
     collection = database[collection_name]
+    query = None  # Initialize to None
 
     try:
         if sample_size <= 0:
@@ -274,13 +310,9 @@ def get_newest_documents(
 
         if valid_fields:
             projection_doc = {field: 1 for field in valid_fields}
-            if (
-                "_id" not in valid_fields and "id" not in valid_fields
-            ):  # also check for "id" if it's an alias
-                projection_doc["_id"] = 0  # only exclude if not explicitly asked for by either name
-            elif (
-                "_id" in valid_fields or "id" in valid_fields
-            ):  # if _id or id is asked, ensure it's included
+            if "_id" not in valid_fields and "id" not in valid_fields:
+                projection_doc["_id"] = 0
+            elif "_id" in valid_fields or "id" in valid_fields:
                 projection_doc["_id"] = 1
 
         elif fields is not None and not valid_fields:
@@ -291,7 +323,7 @@ def get_newest_documents(
             collection.find(projection=projection_doc).sort("_id", DESCENDING).limit(sample_size)
         )
 
-        raw_documents = list(query)
+        raw_documents = list(query)  # This can be a blocking operation
 
         processed_docs: List[Dict] = []
         for doc in raw_documents:
@@ -334,3 +366,7 @@ def get_newest_documents(
             exc_info=True,
         )
         raise
+    finally:
+        if query is not None:  # query is a cursor here
+            query.close()
+            logger.debug("MongoDB cursor closed for get_newest_documents.")
