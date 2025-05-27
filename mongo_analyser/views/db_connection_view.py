@@ -50,7 +50,7 @@ class DBConnectionView(Container):
         yield Static(self.connection_status, id="mongo_connection_status_label")
 
         yield Label(
-            "Collections (select row to set as active):",
+            "Collections in the DB:",
             classes="panel_title_small",
             id="collections_title_label",
         )

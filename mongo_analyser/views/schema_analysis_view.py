@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class SchemaAnalysisView(Container):
-    analysis_status = reactive(Text("Select collection and click Analyze Schema"))
+    analysis_status = reactive(Text("Select a collection and click Analyze Schema"))
     schema_copy_feedback = reactive(Text(""))
     current_hierarchical_schema: Dict = {}
 
@@ -48,17 +48,15 @@ class SchemaAnalysisView(Container):
         yield Button("Analyze Schema", variant="primary", id="analyze_schema_button")
         yield Static(self.analysis_status, id="schema_status_label")
 
-        yield Label("Field Schema & Statistics:", classes="panel_title_small")
+        yield Label("Collection Metadata:", classes="panel_title_small")
         yield DataTable(id="schema_results_table", show_header=True, show_cursor=True)
 
-        yield Label("Hierarchical Schema (JSON):", classes="panel_title_small")
+        yield Label("Collection Schema (JSON):", classes="panel_title_small")
         with VerticalScroll(classes="json_view_container"):
             yield Markdown("```json\n{}\n```", id="schema_json_view")
 
-        yield Label(
-            "Save Schema JSON to:", classes="panel_title_small"
-        )  # Removed placeholder from label
-        yield Input(id="schema_save_path_input", value=self._get_default_save_path())  # Use helper
+        yield Label("Save Schema to:", classes="panel_title_small")
+        yield Input(id="schema_save_path_input", value=self._get_default_save_path())
         yield Button("Save Schema to File", id="save_schema_json_button")
 
         with Horizontal(classes="copy_button_container"):
@@ -359,7 +357,7 @@ class SchemaAnalysisView(Container):
 
                 json_to_copy = "{}"
                 if markdown_content.startswith("```json\n") and markdown_content.endswith("\n```"):
-                    extracted_json = markdown_content[len("```json\n") : -len("\n```")]
+                    extracted_json = markdown_content[len("```json\n"): -len("\n```")]
                     if extracted_json.strip() and not extracted_json.strip().startswith("// Error"):
                         json_to_copy = extracted_json
                     elif extracted_json.strip().startswith("// Error"):
