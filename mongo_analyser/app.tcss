@@ -31,13 +31,13 @@ Tabs {
 /* Styles for the containers directly within ContentSwitcher (our main views) */
 ContentSwitcher > #view_chat_content,
 ContentSwitcher > #view_db_connection_content,
-ContentSwitcher > #view_schema_analysis_content,
-ContentSwitcher > #view_data_extraction_content {
+ContentSwitcher > #view_schema_analysis_content { /* Removed #view_data_extraction_content */
     padding: 1;
-    overflow: auto; /* Individual views should scroll their own content */
+    overflow: auto;
 }
 
 /* Common Panel Styles */
+/* .panel_title class is no longer used for main view titles, but kept for .panel_title_small */
 .panel_title {
     padding: 1 0;
     text-style: bold underline;
@@ -52,7 +52,7 @@ ContentSwitcher > #view_data_extraction_content {
     color: $secondary-darken-1;
 }
 
-/* ChatView Specific Styles (now targeting elements within #view_chat_content) */
+/* ChatView Specific Styles */
 #view_chat_content #chat_interface_horizontal_layout {
     layout: horizontal;
     height: 100%;
@@ -106,7 +106,7 @@ ContentSwitcher > #view_data_extraction_content {
     margin-right:1;
 }
 
-/* DB Connection View (using #view_db_connection_content) */
+/* DB Connection View */
 #view_db_connection_content Label {
     margin-top: 1;
 }
@@ -128,7 +128,7 @@ ContentSwitcher > #view_data_extraction_content {
 #view_db_connection_content #collections_title_label {
     margin-top: 2;
 }
-#view_db_connection_content .collections_list_container { /* Applied to DataTable */
+#view_db_connection_content .collections_list_container {
     margin-top:1;
     border: round $primary-darken-1;
     height: 15;
@@ -137,7 +137,7 @@ ContentSwitcher > #view_data_extraction_content {
     overflow: auto;
 }
 
-/* Schema Analysis View (using #view_schema_analysis_content) */
+/* Schema Analysis View */
 #view_schema_analysis_content Input {
     width: 100%;
     margin-bottom:1;
@@ -147,20 +147,20 @@ ContentSwitcher > #view_data_extraction_content {
     margin-top:1;
     margin-bottom:1;
 }
-#view_schema_analysis_content #save_schema_json_button { /* Style for the new save button */
+#view_schema_analysis_content #save_schema_json_button {
     width: 100%;
     margin-top:1;
     margin-bottom:1;
 }
 #view_schema_analysis_content #schema_results_table {
     margin-top:1;
-    height: 20; /* Adjust as needed */
+    height: 20;
     border: round $primary-darken-1;
     overflow: auto;
 }
 #view_schema_analysis_content .json_view_container {
     margin-top:1;
-    height: 15; /* Adjust as needed */
+    height: 15;
     border: round $primary-darken-1;
     background: $primary-background-darken-3;
     padding: 1;
@@ -185,40 +185,26 @@ ContentSwitcher > #view_data_extraction_content {
     color: $success;
 }
 
-
-/* Data Extraction View (using #view_data_extraction_content) */
+/* Removed Data Extraction View Styles */
+/*
 #view_data_extraction_content Input {
     width: 100%;
     margin-bottom:1;
 }
-
-/* Styling for the Horizontal container holding the extraction buttons */
 #view_data_extraction_content #extraction_actions_bar {
     width: 100%;
-    height: auto; /* Or a fixed height like 3 or 5 */
+    height: auto;
     margin-top: 1;
-    /* layout: horizontal; /* This is inherent to Horizontal widget */
-    /* align: center middle; /* Optional: To center buttons if they don't fill width */
 }
-
-/* Styling for the action buttons within the extraction_actions_bar */
 #view_data_extraction_content #extraction_actions_bar .action_button {
-    width: 1fr;  /* Distribute space equally among buttons in the bar */
-    margin: 0 1; /* Add some horizontal spacing between buttons */
+    width: 1fr;
+    margin: 0 1;
 }
-
-/* REMOVED old style for #start_extraction_button to avoid conflict:
-#view_data_extraction_content #start_extraction_button {
-    width: 100%;
-    margin-top:1;
-    margin-bottom:1;
-}
-*/
-
 #view_data_extraction_content #extraction_log {
-    height: 20; /* Adjust as needed */
+    height: 20;
     border: round $primary-darken-1;
     background: $primary-background-darken-3;
     overflow: auto;
     padding:1;
 }
+*/

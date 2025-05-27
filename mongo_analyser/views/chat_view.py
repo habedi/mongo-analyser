@@ -22,7 +22,7 @@ class ChatView(Container):
     llm_client_instance: LLMChat | None = None
 
     USER_PREFIX_Styled = Text.from_markup("[b #ECEFF4]USER:[/] ")
-    AI_PREFIX_Styled = Text.from_markup("[b #88C0D0]AI:[/] ")  # Changed AI color
+    AI_PREFIX_Styled = Text.from_markup("[b #88C0D0]AI:[/] ")
     SYSTEM_PREFIX_Styled = Text.from_markup("[b #EBCB8B]SYSTEM:[/] ")
 
     def _log_chat_message(self, prefix_styled: Text, message_content: str):
@@ -66,6 +66,7 @@ class ChatView(Container):
                     classes="chat_status",
                 )
                 with VerticalScroll(id="chat_log_scroll", classes="chat_log_container"):
+                    # Removed wrap=True from the Log widget as it's not a valid argument
                     yield Log(id="chat_log_widget", auto_scroll=True, highlight=True)
 
                 with Horizontal(id="chat_input_bar", classes="chat_input_container"):
@@ -172,13 +173,9 @@ class ChatView(Container):
         listed_models: List[str] = []
         error_message: str | None = None
 
-        # Use get_llm_config to pass API key/base URL if set, for listing models (e.g. custom Ollama host)
         client_config_for_list = (
             llm_config_panel.get_llm_config() if llm_config_panel.is_mounted else {}
         )
-        # list_models in LiteLLMChat expects 'base_url', not 'api_base' for Ollama listing
-        # get_llm_config now returns 'base_url' if present.
-
         logger.debug(f"ChatView: Client config for listing models: {client_config_for_list}")
 
         try:
@@ -254,9 +251,9 @@ class ChatView(Container):
                     self.SYSTEM_PREFIX_Styled,
                     f"{len(listed_models)} models found. Selected: {default_model_to_set}.",
                 )
-            else:  # No models found after all, or default_model_to_set remained None
+            else:
                 llm_config_panel.update_models_list([], "No models found.")
-                llm_config_panel.model = None  # Ensure reactive property is None
+                llm_config_panel.model = None
                 self._log_chat_message(
                     self.SYSTEM_PREFIX_Styled, f"No models available for {provider_value_str}."
                 )
@@ -334,15 +331,10 @@ class ChatView(Container):
             )
             return False
 
-        # Temperature and max_tokens have defaults in LLMConfigPanel, so should be present
-        # System_prompt is optional. API key and base_url are also optional.
-
         logger.info(
             f"ChatView: Creating LiteLLMChat client with model_name='{raw_model_name}', config={config}"
         )
         try:
-            # Pass the raw_model_name as 'model_name' and the rest of config as kwargs
-            # LiteLLMChat constructor expects 'model_name' as first arg, then **kwargs
             client_kwargs = {k: v for k, v in config.items() if k != "model_name"}
             new_client = LiteLLMChat(model_name=raw_model_name, **client_kwargs)
             self.llm_client_instance = new_client
@@ -388,12 +380,7 @@ class ChatView(Container):
 
         self._log_chat_message(self.USER_PREFIX_Styled, user_message)
 
-        # Prepare history, potentially adding system prompt if it's a new session
-        # The LiteLLMChat wrapper will now handle prepending the system prompt internally if provided
-        history_for_llm = (
-            self.chat_history.copy()
-        )  # chat_history only contains user/assistant turns
-
+        history_for_llm = self.chat_history.copy()
         self.chat_history.append({"role": "user", "content": user_message})
 
         message_input.value = ""
@@ -410,7 +397,6 @@ class ChatView(Container):
             logger.debug(
                 f"ChatView: Worker starting send_message to model {active_client.model_name}"
             )
-            # The system_prompt is part of the client's configuration now
             return active_client.send_message(message=user_message, history=history_for_llm)
 
         if self.current_llm_worker and self.current_llm_worker.state == WorkerState.RUNNING:

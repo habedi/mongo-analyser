@@ -20,10 +20,9 @@ from textual.widgets import (
 from mongo_analyser.core import db as core_db_manager
 from mongo_analyser.views import (
     ChatView,
-    DataExtractionView,
     DBConnectionView,
     SchemaAnalysisView,
-)
+)  # Removed DataExtractionView
 
 logger = logging.getLogger(__name__)
 
@@ -84,14 +83,15 @@ class MongoAnalyserApp(App[None]):
         except Exception as e:
             logger.error(f"Error updating schema view collections: {e}", exc_info=True)
 
-        try:
-            extract_view = self.query_one(DataExtractionView)
-            if extract_view.is_mounted:
-                extract_view.update_collection_select()
-        except NoMatches:
-            pass
-        except Exception as e:
-            logger.error(f"Error updating extraction view collections: {e}", exc_info=True)
+        # Removed update for DataExtractionView as it's being removed
+        # try:
+        #     extract_view = self.query_one(DataExtractionView)
+        #     if extract_view.is_mounted:
+        #         extract_view.update_collection_select()
+        # except NoMatches:
+        #     pass
+        # except Exception as e:
+        #     logger.error(f"Error updating extraction view collections: {e}", exc_info=True)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -99,13 +99,13 @@ class MongoAnalyserApp(App[None]):
             Tab(label="Chat", id="tab_chat"),
             Tab(label="DB Connection", id="tab_db_connection"),
             Tab(label="Schema Analysis", id="tab_schema_analysis"),
-            Tab(label="Data Extraction", id="tab_data_extraction"),
+            # Removed Data Extraction Tab
         )
         with ContentSwitcher(initial="view_chat_content"):
             yield ChatView(id="view_chat_content")
             yield DBConnectionView(id="view_db_connection_content")
             yield SchemaAnalysisView(id="view_schema_analysis_content")
-            yield DataExtractionView(id="view_data_extraction_content")
+            # Removed DataExtractionView instance
         yield Footer()
 
     async def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
@@ -147,7 +147,7 @@ class MongoAnalyserApp(App[None]):
                     isinstance(active_view, ChatView)
                     or isinstance(active_view, DBConnectionView)
                     or isinstance(active_view, SchemaAnalysisView)
-                    or isinstance(active_view, DataExtractionView)
+                    # Removed DataExtractionView from isinstance check
                 ):
                     active_view.focus_default_widget()
             else:

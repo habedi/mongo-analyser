@@ -40,15 +40,10 @@ class LLMConfigPanel(VerticalScroll):
     provider: reactive[Optional[str]] = reactive(None)
     model: reactive[Optional[str]] = reactive(None)
     temperature: reactive[Optional[float]] = reactive(0.7)
-    max_context_size: reactive[Optional[int]] = reactive(2048)
-    api_key: reactive[Optional[str]] = reactive(None)
-    base_url: reactive[Optional[str]] = reactive(None)
     system_prompt: reactive[Optional[str]] = reactive(None)
 
     def compose(self) -> ComposeResult:
         yield Label("Session Config", classes="panel_title")
-        yield Label("Name:")
-        yield Input(placeholder="New Chat X", id="llm_config_session_name")
 
         yield Label("Provider:")
         providers = [("Ollama", "ollama"), ("OpenAI", "openai"), ("Google", "google")]
@@ -70,21 +65,13 @@ class LLMConfigPanel(VerticalScroll):
         )
 
         yield Label("System Prompt (Optional):")
-        # Removed placeholder from TextArea
-        yield TextArea(id="llm_config_system_prompt", text="You are a helpful assistant.")
+        yield TextArea(id="llm_config_system_prompt", text="Be based.")  # Changed default text
 
         yield Label("Temperature:")
         yield Input(placeholder="0.7", id="llm_config_temperature", value="0.7")
-        yield Label("Max Context Size / Output Tokens:")
-        yield Input(placeholder="e.g., 2048", id="llm_config_max_context_size", value="2048")
-
-        yield Label("API Key (Optional, uses env if blank):")
-        yield Input(placeholder="sk-...", id="llm_config_api_key", password=True)
-        yield Label("Base URL (Optional, for custom endpoints):")
-        yield Input(placeholder="http://localhost:11434", id="llm_config_base_url")
 
         yield Button(
-            "New/Reset Session",
+            "New Session",
             id="llm_config_new_session_button",
             classes="config_button",
         )
@@ -99,9 +86,6 @@ class LLMConfigPanel(VerticalScroll):
 
         self._update_system_prompt()
         self._update_temperature()
-        self._update_max_context_size()
-        self._update_api_key()
-        self._update_base_url()
 
         if self.provider:
             self.post_message(self.ProviderChanged(self.provider))
@@ -138,12 +122,6 @@ class LLMConfigPanel(VerticalScroll):
     async def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "llm_config_temperature":
             self._update_temperature()
-        elif event.input.id == "llm_config_max_context_size":
-            self._update_max_context_size()
-        elif event.input.id == "llm_config_api_key":
-            self._update_api_key()
-        elif event.input.id == "llm_config_base_url":
-            self._update_base_url()
 
     async def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id == "llm_config_system_prompt":
@@ -151,7 +129,6 @@ class LLMConfigPanel(VerticalScroll):
 
     def _update_system_prompt(self) -> None:
         try:
-            # TextArea uses .text to get its content
             self.system_prompt = self.query_one("#llm_config_system_prompt", TextArea).text or None
         except NoMatches:
             self.system_prompt = None
@@ -162,26 +139,6 @@ class LLMConfigPanel(VerticalScroll):
             self.temperature = float(val_str)
         except (ValueError, NoMatches):
             self.temperature = 0.7
-
-    def _update_max_context_size(self) -> None:
-        try:
-            val_str = self.query_one("#llm_config_max_context_size", Input).value
-            val_int = int(val_str)
-            self.max_context_size = val_int if val_int > 0 else 2048
-        except (ValueError, NoMatches):
-            self.max_context_size = 2048
-
-    def _update_api_key(self) -> None:
-        try:
-            self.api_key = self.query_one("#llm_config_api_key", Input).value or None
-        except NoMatches:
-            pass
-
-    def _update_base_url(self) -> None:
-        try:
-            self.base_url = self.query_one("#llm_config_base_url", Input).value or None
-        except NoMatches:
-            pass
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "llm_config_new_session_button":
@@ -267,12 +224,6 @@ class LLMConfigPanel(VerticalScroll):
             "provider_hint": self.provider,
             "model_name": self.model,
             "temperature": self.temperature,
-            "max_tokens": self.max_context_size,
             "system_prompt": self.system_prompt,
         }
-        if self.api_key:
-            config["api_key"] = self.api_key
-        if self.base_url:
-            config["base_url"] = self.base_url
-
         return {k: v for k, v in config.items() if v is not None}

@@ -3,13 +3,12 @@ import os
 from typing import Any, Dict, List
 
 from rich.text import Text
-from textual import on  # For DataTable event
+from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widgets import Button, DataTable, Input, Label, Static
-from textual.worker import Worker
 
 from mongo_analyser.core import db as core_db_manager
 from mongo_analyser.core.shared import redact_uri_password
@@ -40,14 +39,14 @@ class DBConnectionView(Container):
     connection_status = reactive(Text.from_markup("[#D08770]Not Connected[/]"))
 
     def compose(self) -> ComposeResult:
-        yield Label("MongoDB Connection", classes="panel_title")
+        # yield Label("MongoDB Connection", classes="panel_title") # Removed panel title
         yield Label("MongoDB URI:")
         yield Input(
             id="mongo_uri_input", value=os.getenv("MONGO_URI", "mongodb://localhost:27017/")
         )
         yield Label("Database Name (for connection context):")
         yield Input(id="mongo_db_name_input", placeholder="e.g., my_database (optional if in URI)")
-        yield Button("Connect & List Collections", variant="primary", id="connect_mongo_button")
+        yield Button("Connect to DB", variant="primary", id="connect_mongo_button")
         yield Static(self.connection_status, id="mongo_connection_status_label")
 
         yield Label(
@@ -158,7 +157,7 @@ class DBConnectionView(Container):
 
             self.connection_status = Text.from_markup("[#EBCB8B]Connecting...[/]")
             self.app.available_collections = []
-            self.app.active_collection = None  # Reset active collection
+            self.app.active_collection = None
             collections_table.clear()
             title_label.visible = False
             collections_table.visible = False
@@ -192,7 +191,7 @@ class DBConnectionView(Container):
                                 _format_bytes_tui(coll_data["avgObjSize"]),
                                 _format_bytes_tui(coll_data["size"]),
                                 _format_bytes_tui(coll_data["storageSize"]),
-                                key=coll_data["name"],  # Use collection name as row key
+                                key=coll_data["name"],
                             )
                     else:
                         title_label.visible = True
@@ -226,7 +225,7 @@ class DBConnectionView(Container):
                     f"DBConnectionView: Collection '{selected_collection_name}' set as active."
                 )
                 self.app.notify(f"Collection '{selected_collection_name}' set as active.")
-            else:  # Should not happen if row_key is always set
+            else:
                 logger.warning(
                     "DBConnectionView: RowSelected event triggered with no row_key value."
                 )
