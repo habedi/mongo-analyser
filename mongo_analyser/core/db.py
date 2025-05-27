@@ -1,171 +1,147 @@
 import logging
 from typing import Optional
 
-from mongoengine import connect as me_connect
-from mongoengine import disconnect as me_disconnect
-from mongoengine import get_db as me_get_db
-from mongoengine.connection import ConnectionFailure as MEConnectionLibFailure
-from mongoengine.connection import get_connection
-from mongoengine.errors import NotRegistered as MENotRegisteredError
+from pymongo import MongoClient
 from pymongo.database import Database as PyMongoDatabase
-from pymongo.errors import (
-    ConnectionFailure as PyMongoNetworkConnectionFailure,
-)
-from pymongo.errors import (
-    OperationFailure as PyMongoOperationFailure,
-)
+from pymongo.errors import ConnectionFailure, OperationFailure
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ALIAS = "mongo_analyser_core_connection"
+_client: Optional[MongoClient] = None
+_db: Optional[PyMongoDatabase] = None
+_current_uri: Optional[str] = None
+_current_db_name_arg: Optional[str] = None
 
 
 def db_connection_active(
     uri: str,
-    db_name: Optional[str] = None,
-    alias: str = DEFAULT_ALIAS,
+    db_name: Optional[str] = None,  # db_name can be part of URI or specified
     server_timeout_ms: int = 5000,
+    force_reconnect: bool = False,
     **kwargs,
 ) -> bool:
-    try:
-        get_connection(alias)
-        db_to_ping = me_get_db(alias)
-        db_to_ping.client.admin.command("ping")
-        logger.debug(f"Already connected and live with alias '{alias}'.")
-        return True
-    except (MEConnectionLibFailure, PyMongoNetworkConnectionFailure, PyMongoOperationFailure) as e:
-        logger.info(
-            f"No existing live MongoEngine connection for alias '{alias}' (Error: {type(e).__name__}). Attempting new connection."
-        )
-        try:
-            me_disconnect(alias)
-        except (MENotRegisteredError, MEConnectionLibFailure):
-            pass
+    global _client, _db, _current_uri, _current_db_name_arg
+
+    if not force_reconnect and _client is not None and _db is not None and _current_uri == uri:
+        target_db_name_for_check = db_name if db_name else _client.get_database().name
+
+        if _db.name == target_db_name_for_check or (db_name and _db.name == db_name):
+            try:
+                _client.admin.command("ping")
+                logger.debug(
+                    f"Already connected to MongoDB (URI: {_current_uri}, DB: {_db.name}). Ping successful.")
+                return True
+            except (ConnectionFailure, OperationFailure) as e:
+                logger.warning(
+                    f"Existing MongoDB connection ping failed: {e}. Attempting to re-establish.")
+                _client = None
+                _db = None
+        elif db_name and _db.name != db_name:
+            logger.info(
+                f"Switching DB context on existing client from '{_db.name}' to '{db_name}'.")
+            try:
+                _db = _client[db_name]
+                _current_db_name_arg = db_name
+                logger.info(f"Successfully switched DB context to '{_db.name}'.")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to switch DB context to '{db_name}': {e}")
+                _client = None
+                _db = None
+
+    if _client is not None:
+        _client.close()
+        _client = None
+        _db = None
 
     try:
-        connect_params = {
-            "host": uri,
-            "alias": alias,
+        logger.info(f"Attempting to connect to MongoDB: {uri}, target DB specified: {db_name}")
+        client_options = {
             "serverSelectionTimeoutMS": server_timeout_ms,
-            **kwargs,
+            **kwargs
         }
+        temp_client = MongoClient(uri, **client_options)
+
+        db_to_use_name: Optional[str] = None
+
+        uri_parts = uri.split("/")
+        path_part = uri_parts[3].split("?")[0] if len(uri_parts) > 3 else None
+
         if db_name:
-            connect_params["db"] = db_name
+            db_to_use_name = db_name
+        elif path_part and path_part != "":
+            db_to_use_name = path_part
+        else:
+            logger.error(
+                f"No database name specified in URI ('{uri}') or as an argument. Cannot determine database context.")
+            temp_client.close()
+            return False
 
-        me_connect(**connect_params)
+        if not db_to_use_name:
+            logger.error(
+                f"Critical: Database name could not be resolved for URI '{uri}' and db_name arg '{db_name}'.")
+            temp_client.close()
+            return False
 
-        db_instance_to_ping = me_get_db(alias)
-        db_instance_to_ping.client.admin.command("ping")
+        temp_client.admin.command("ping")
 
-        logger.info(
-            f"MongoEngine connected successfully with alias '{alias}' to DB '{db_instance_to_ping.name}'."
-        )
+        _client = temp_client
+        _db = _client[db_to_use_name]
+        _current_uri = uri
+        _current_db_name_arg = db_name
+
+        logger.info(f"Successfully connected to MongoDB. URI: '{uri}', Effective DB: '{_db.name}'.")
         return True
-    except (PyMongoNetworkConnectionFailure, PyMongoOperationFailure) as e:
-        logger.error(
-            f"MongoEngine connection failed (network/auth) for alias '{alias}'. URI: {uri}. DB: {db_name}. Error: {e}",
-            exc_info=False,
-        )
-        try:
-            me_disconnect(alias)
-        except (MENotRegisteredError, MEConnectionLibFailure):
-            pass
+    except (ConnectionFailure, OperationFailure) as e:
+        logger.error(f"MongoDB connection failed for URI '{uri}', target DB '{db_name}': {e}")
+        if _client is not None:
+            _client.close()
+        _client = None
+        _db = None
+        _current_uri = None
+        _current_db_name_arg = None
         return False
     except Exception as e:
-        logger.error(
-            f"Unexpected error during MongoEngine connection for alias '{alias}': {e}",
-            exc_info=True,
-        )
-        try:
-            me_disconnect(alias)
-        except (MENotRegisteredError, MEConnectionLibFailure):
-            pass
+        logger.error(f"Unexpected error during MongoDB connection: {e}", exc_info=True)
+        if _client is not None:
+            _client.close()
+        _client = None
+        _db = None
+        _current_uri = None
+        _current_db_name_arg = None
         return False
 
 
-def get_mongo_db(alias: str = DEFAULT_ALIAS) -> PyMongoDatabase:
+def get_mongo_db() -> PyMongoDatabase:
+    global _current_uri, _current_db_name_arg, _client, _db
+    if _db is None or _client is None:
+        raise ConnectionError("Not connected to MongoDB. Call db_connection_active first.")
     try:
-        get_connection(alias)
-        db = me_get_db(alias)
-        return db
-    except (MEConnectionLibFailure, MENotRegisteredError) as e:
-        logger.error(
-            f"Attempted to get database for alias '{alias}' but no active connection registered for it."
-        )
-        raise ConnectionError(
-            f"Not connected via MongoEngine for alias '{alias}'. Call db_connection_active first."
-        ) from e
+        # Explicitly send the ping command as a dictionary
+        _client.admin.command({"ping": 1})
+    except (ConnectionFailure, OperationFailure) as e:
+        logger.error(f"MongoDB connection lost when trying to get DB: {e}")
+        _current_uri = None
+        _current_db_name_arg = None
+        if _client is not None:
+            _client.close()
+        _client = None
+        _db = None
+        raise ConnectionError("MongoDB connection lost. Reconnect needed.") from e
+    return _db
 
 
-def disconnect_mongo(alias: str = DEFAULT_ALIAS) -> None:
-    try:
-        me_disconnect(alias)
-        logger.info(f"MongoEngine connection with alias '{alias}' disconnected.")
-    except MENotRegisteredError:
-        logger.debug(
-            f"No active MongoEngine connection with alias '{alias}' to disconnect (NotRegistered)."
-        )
-    except MEConnectionLibFailure as e:
-        logger.warning(f"Connection library failure during disconnect for alias '{alias}': {e}")
+def disconnect_mongo() -> None:
+    global _client, _db, _current_uri, _current_db_name_arg
+    if _client is not None:
+        _client.close()
+        logger.info("MongoDB client connection closed.")
+    _client = None
+    _db = None
+    _current_uri = None
+    _current_db_name_arg = None
 
 
 def disconnect_all_mongo() -> None:
-    # Reverted to using internal attributes as get_aliases() might not be available
-    try:
-        from mongoengine import connection as me_connection_module
+    disconnect_mongo()
 
-        # Accessing internal attributes directly - this can be fragile
-        aliases_to_disconnect = list(getattr(me_connection_module, "_connections", {}).keys())
-        for alias_name in aliases_to_disconnect:
-            try:
-                me_disconnect(alias_name)
-                logger.info(
-                    f"MongoEngine connection with alias '{alias_name}' disconnected via _connections."
-                )
-            except MENotRegisteredError:
-                logger.debug(
-                    f"Alias {alias_name} from _connections was already gone during disconnect_all."
-                )
-            except MEConnectionLibFailure as e:
-                logger.warning(
-                    f"Connection library failure during disconnect_all for alias '{alias_name}' from _connections: {e}"
-                )
-
-        # Also check _connection_settings as a fallback, as an alias might be configured but not actively connected
-        settings_aliases = list(getattr(me_connection_module, "_connection_settings", {}).keys())
-        for alias_name in settings_aliases:
-            if (
-                alias_name not in aliases_to_disconnect
-            ):  # Avoid trying to disconnect again if already handled
-                try:
-                    me_disconnect(alias_name)
-                    logger.info(
-                        f"MongoEngine connection with alias '{alias_name}' disconnected via _connection_settings."
-                    )
-                except MENotRegisteredError:
-                    # This is expected if the connection was never established
-                    logger.debug(
-                        f"Alias {alias_name} from _connection_settings was not an active connection to disconnect."
-                    )
-                except MEConnectionLibFailure as e:
-                    logger.warning(
-                        f"Connection library failure during disconnect_all for alias '{alias_name}' from _connection_settings: {e}"
-                    )
-
-        # Explicitly try to disconnect DEFAULT_ALIAS and 'default' if they weren't in the lists,
-        # as they are common aliases that might have specific handling or states.
-        common_aliases_to_check = [DEFAULT_ALIAS, "default"]
-        for ca in common_aliases_to_check:
-            if ca not in aliases_to_disconnect and ca not in settings_aliases:
-                try:
-                    me_disconnect(ca)
-                    logger.info(f"Explicit disconnect attempt for common alias '{ca}' successful.")
-                except (MENotRegisteredError, MEConnectionLibFailure):
-                    logger.debug(
-                        f"Explicit disconnect attempt for common alias '{ca}' found no active connection."
-                    )
-                    pass
-
-    except Exception as e:
-        logger.error(f"Error during disconnect_all_mongo: {e}", exc_info=True)
-    logger.info("Attempted to disconnect all known MongoEngine connections.")

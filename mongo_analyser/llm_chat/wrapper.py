@@ -3,72 +3,102 @@ import os
 import re
 from typing import Any, Dict, Iterator, List, Optional
 
-import litellm
+import litellm  # Ensure litellm is installed
 
 from .interface import LLMChat
 
 logger = logging.getLogger(__name__)
 
+# More refined blocklists, focusing on non-chat models
 MODEL_BLOCKLISTS = {
     "openai": [
-        "babbage",
-        "davinci",
-        "curie",
-        "ada",
-        "babbage-002",
-        "dall-e-2",
-        "dall-e-3",
-        "davinci-002",
-        "gpt-3.5-turbo-instruct",
-        "gpt-3.5-turbo-instruct-0914",
-        "text-embedding-ada-002",
-        "text-embedding-3-small",
-        "text-embedding-3-large",
-        "tts-1",
-        "tts-1-hd",
-        "whisper-1",
+        r"babbage.*",
+        r"davinci.*",
+        r"curie.*",
+        r"ada.*",  # Older completion models
+        r"dall-e.*",  # Image models
+        r"text-embedding.*",
+        r"*-embedding-.*",  # Embedding models
+        r"tts-.*",  # Text-to-speech
+        r"whisper-.*",  # Speech-to-text
+        r"gpt-3\.5-turbo-instruct.*",  # Instruct models (usually not for chat UI)
+        r"text-moderation-.*",  # Moderation models
     ],
-    "google": [
-        "models/text-bison-001",
-        "models/chat-bison-001",
-        "models/embedding-gecko-001",
-        "models/embedding-001",
-        "models/aqa",
+    "google": [  # For Gemini API (gemini/*)
+        r"models/embedding-.*",
+        r"models/aqa",  # Specific non-chat models
+        r".*-tts",
+        r".*-transcribe",
+        r".*-vision",  # General non-chat suffixes
+        # Models like text-bison, chat-bison are for Vertex AI, not directly listed by gemini/* usually
     ],
-    "google_suffix_blocklist": [
-        "-exp",
-        "-preview",
-        "-tuning",
-        "-thinking",
+    "google_vertex": [  # If you were to list Vertex AI models separately
+        r"text-bison.*",
+        r"chat-bison.*",
+        r"embedding-gecko.*",
+    ],
+    "ollama": [  # Models typically used for embeddings or other non-chat tasks
+        r".*embed.*",
+        r"nomic-embed-text",
+        r"mxbai-embed-large",
+        r"snowflake-arctic-embed",
+        r"all-minilm",
+        r"bge-.*",
+        r"distiluse-base-multilingual-cased",
+        r"e5-.*",
+        r"gemma:.*-text",  # some gemma are instruct
+        r"sentence-transformers/.*",
+        r"vision",
+        r"llava",  # Vision models
+    ],
+    "common_suffixes_to_avoid": [  # General suffixes that often indicate non-chat models
+        "-instruct",
+        "-code",
+        "-edit",
+        "-vision",
+        "-embed",
         "-tts",
-        "-experimental",
-        "-transcribe",
-    ],
-    "ollama": [
-        "nomic-embed-text",
-        "mxbai-embed-large",
-        "snowflake-arctic-embed",
-        "granite-embedding",
+        "-stt",
+        "-preview",
+        "-experimental",  # Often less stable or for specific uses
     ],
 }
 
 
-def _ends_with_hyphen_numbers(model_name: str) -> bool:
-    name_part = model_name.split(":")[0]
-    match = re.search(r"-\d+$", name_part)
-    return bool(match)
+def _is_model_blocked(model_name: str, provider: Optional[str]) -> bool:
+    """Checks if a model name matches any regex pattern in the blocklists."""
+    block_patterns: List[str] = []
+    if provider:
+        block_patterns.extend(MODEL_BLOCKLISTS.get(provider.lower(), []))
+
+    # Add common suffixes if not already covered by provider-specific list
+    # (or apply them universally)
+    # block_patterns.extend(MODEL_BLOCKLISTS.get("common_suffixes_to_avoid", []))
+
+    for pattern in block_patterns:
+        try:
+            if re.search(pattern, model_name, re.IGNORECASE):
+                logger.debug(
+                    f"Model '{model_name}' blocked by pattern '{pattern}' for provider '{provider}'."
+                )
+                return True
+        except re.error as e:
+            logger.warning(f"Regex error in blocklist pattern '{pattern}': {e}")
+    return False
 
 
 class LiteLLMChat(LLMChat):
     def __init__(self, model_name: str, provider_hint: Optional[str] = None, **kwargs: Any):
-        self.raw_model_name = model_name
+        self.raw_model_name = model_name  # The name from the config panel (e.g., "llama3")
         self.provider_hint = (
             provider_hint.lower() if provider_hint else self._guess_provider(model_name)
         )
-        self.config_params = (
-            kwargs  # Includes temperature, max_tokens, api_key, base_url, system_prompt
-        )
 
+        # kwargs from config panel: api_key, base_url, temperature, system_prompt, max_history_messages etc.
+        self.config_params = kwargs
+
+        # Construct the fully qualified model name for LiteLLM
+        # Examples: "ollama/llama2", "gpt-3.5-turbo", "gemini/gemini-pro"
         fq_model_name = self.raw_model_name
         if self.provider_hint == "ollama" and not self.raw_model_name.startswith("ollama/"):
             fq_model_name = f"ollama/{self.raw_model_name}"
@@ -77,92 +107,103 @@ class LiteLLMChat(LLMChat):
             and not self.raw_model_name.startswith("gemini/")
             and "/" not in self.raw_model_name
         ):
+            # For Google, LiteLLM often expects "gemini/model-name"
             fq_model_name = f"gemini/{self.raw_model_name}"
-        elif (
-            self.provider_hint
-            and self.provider_hint not in ["ollama", "google"]
-            and "/" not in self.raw_model_name
-        ):
-            if self.provider_hint in [
-                "openai",
-                "azure",
-                "anthropic",
-                "mistral",
-                "cohere",
-            ]:
-                fq_model_name = f"{self.provider_hint}/{self.raw_model_name}"
+        # For OpenAI, model names like "gpt-3.5-turbo" are usually used directly without a prefix with LiteLLM,
+        # unless it's a specific variant like "openai/gpt-4o-mini".
+        # LiteLLM handles "gpt-3.5-turbo" as an OpenAI model by default.
+        # If provider_hint is "openai" and model_name doesn't have "openai/", it's usually fine.
 
-        super().__init__(fq_model_name, **kwargs)
+        # Other providers might require prefixes like "anthropic/claude-2"
+        # This logic can be expanded based on LiteLLM's conventions for different providers.
+
+        super().__init__(fq_model_name, **kwargs)  # Pass fq_model_name to parent
 
     def _guess_provider(self, model_name: str) -> Optional[str]:
         model_lower = model_name.lower()
-        if model_lower.startswith("gpt-") or "openai/" in model_lower:
+        if model_lower.startswith("gpt-") or "openai/" in model_lower or "gpt-4" in model_lower:
             return "openai"
-        if (
-            model_lower.startswith("gemini/")
-            or "gemini" in model_lower
-            or "google/" in model_lower
-            or model_lower.startswith("models/")
-        ):
-            return "google"
+        if "gemini" in model_lower or "google/" in model_lower or model_lower.startswith("models/"):
+            return "google"  # models/ for Vertex
         if model_lower.startswith("ollama/"):
             return "ollama"
         if "claude" in model_lower or "anthropic/" in model_lower:
             return "anthropic"
         if "mistral" in model_lower and not model_lower.startswith("ollama/"):
-            if "mistral/" in model_lower:
-                return "mistral"
+            if (
+                "mistral/" in model_lower
+                or "open-mistral" in model_lower
+                or "mixtral" in model_lower
+            ):
+                return (
+                    "mistral"  # or specific provider like "together_ai/Mixtral-8x7B-Instruct-v0.1"
+                )
         if "azure/" in model_lower:
-            return "azure"
-        return None
+            return "azure"  # For Azure OpenAI
+        # Add more guesses based on common model name patterns
+        return None  # Cannot guess
 
     def _initialize_client(self, **kwargs: Any) -> Any:
+        # LiteLLM doesn't require a persistent client object.
+        # We store config params here for use in send_message/stream_message.
         self.api_key = self.config_params.get("api_key")
-        self.base_url = self.config_params.get("base_url")  # For LiteLLM, this is often api_base
+        self.base_url = self.config_params.get("base_url")  # For LiteLLM, this is 'api_base'
         self.temperature = float(self.config_params.get("temperature", 0.7))
-        self.max_tokens = int(self.config_params.get("max_tokens", 2048))
+        self.max_tokens = int(self.config_params.get("max_tokens", 2048))  # Output tokens
         self.system_prompt = self.config_params.get("system_prompt")
+        # max_history_messages is handled by ChatView, not directly by LiteLLM call.
 
+        # Set environment variables for API keys if provided and not already set
+        # LiteLLM often picks up keys from env vars.
         if self.provider_hint == "openai" and self.api_key and not os.getenv("OPENAI_API_KEY"):
             os.environ["OPENAI_API_KEY"] = self.api_key
-            logger.debug("Set OPENAI_API_KEY from config panel for this session.")
+            logger.debug("Set OPENAI_API_KEY from config for this session.")
         if self.provider_hint == "google" and self.api_key and not os.getenv("GOOGLE_API_KEY"):
+            # For Gemini API, it's often GOOGLE_API_KEY
             os.environ["GOOGLE_API_KEY"] = self.api_key
-            logger.debug("Set GOOGLE_API_KEY from config panel for this session.")
+            logger.debug("Set GOOGLE_API_KEY from config for this session.")
+        # Add for other providers as needed (e.g., ANTHROPIC_API_KEY)
 
         logger.info(
-            f"LiteLLMChat configured for model '{self.model_name}' (Provider hint: {self.provider_hint}, Raw name from panel: {self.raw_model_name})"
+            f"LiteLLMChat configured for effective model '{self.model_name}' "
+            f"(Provider hint: {self.provider_hint}, Raw name from panel: {self.raw_model_name}, "
+            f"Temp: {self.temperature}, MaxOutputTokens: {self.max_tokens})"
         )
-        return (
-            None  # LiteLLM doesn't require a persistent client object in the same way some SDKs do
-        )
+        return None  # No client object needed
 
     def _prepare_messages_payload(
-        self, message: str, history: List[Dict[str, str]] = None
+        self,
+        message: str,
+        history: List[Dict[str, str]] = None,
+        # History is already filtered by ChatView
     ) -> List[Dict[str, str]]:
-        formatted_history = self.format_history(history)  # user/assistant turns
-        messages_payload = []
-        if self.system_prompt:
+        # History should be user/assistant turns. System prompt is handled separately.
+        messages_payload: List[Dict[str, str]] = []
+        if self.system_prompt:  # Add system prompt if provided
             messages_payload.append({"role": "system", "content": self.system_prompt})
-        messages_payload.extend(formatted_history)
-        messages_payload.append({"role": "user", "content": message})
+
+        if history:  # Add formatted history (user/assistant turns)
+            messages_payload.extend(history)
+
+        messages_payload.append({"role": "user", "content": message})  # Add current user message
         return messages_payload
 
     def send_message(self, message: str, history: List[Dict[str, str]] = None) -> str:
         messages_payload = self._prepare_messages_payload(message, history)
 
         call_kwargs: Dict[str, Any] = {
-            "model": self.model_name,
+            "model": self.model_name,  # The fully qualified model name
             "messages": messages_payload,
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
+            "max_tokens": self.max_tokens,  # Max output tokens
         }
         if self.api_key:
             call_kwargs["api_key"] = self.api_key
-        if self.base_url:  # LiteLLM uses 'api_base' for custom endpoints
-            call_kwargs["api_base"] = self.base_url
+        if self.base_url:
+            call_kwargs["api_base"] = self.base_url  # LiteLLM uses 'api_base'
 
-        # Add any other relevant kwargs from self.config_params not already handled
+        # Add any other relevant kwargs from self.config_params not explicitly handled
+        # This allows passing custom params supported by LiteLLM or specific models.
         for k, v in self.config_params.items():
             if (
                 k
@@ -174,16 +215,24 @@ class LiteLLMChat(LLMChat):
                     "temperature",
                     "max_tokens",
                     "system_prompt",
+                    "max_history_messages",
                 ]
                 and k not in call_kwargs
             ):
                 call_kwargs[k] = v
 
         try:
+            # Redact messages for logging if too long or sensitive
+            logged_kwargs = {
+                k: (v if k != "messages" else f"<{len(v)} messages>")
+                for k, v in call_kwargs.items()
+            }
             logger.debug(
-                f"Calling LiteLLM completion for {self.model_name} with relevant kwargs: { {k: v for k, v in call_kwargs.items() if k != 'messages'} }"
+                f"Calling LiteLLM completion for {self.model_name} with kwargs: {logged_kwargs}"
             )
+
             response = litellm.completion(**call_kwargs)
+
             assistant_response = ""
             if (
                 response.choices
@@ -196,11 +245,19 @@ class LiteLLMChat(LLMChat):
             logger.error(
                 f"LiteLLM completion error for model {self.model_name}: {e}", exc_info=True
             )
-            return f"Error from LLM ({self.model_name}): {e.__class__.__name__} - {e!s}"
+            # Raise a more specific error or return a formatted error message
+            return (
+                f"Error from LLM ({self.raw_model_name}): {e.__class__.__name__} - {str(e)[:100]}"
+            )
 
     def stream_message(self, message: str, history: List[Dict[str, str]] = None) -> Iterator[str]:
+        # Streaming implementation would be similar to send_message but with stream=True
+        # and yielding content from chunks. This is not used by the current ChatView.
+        # If needed, implement similarly to send_message.
+        logger.warning(
+            "stream_message is called but not fully utilized by ChatView's current send mechanism."
+        )
         messages_payload = self._prepare_messages_payload(message, history)
-
         call_kwargs: Dict[str, Any] = {
             "model": self.model_name,
             "messages": messages_payload,
@@ -212,235 +269,180 @@ class LiteLLMChat(LLMChat):
             call_kwargs["api_key"] = self.api_key
         if self.base_url:
             call_kwargs["api_base"] = self.base_url
-
-        for k, v in self.config_params.items():
-            if (
-                k
-                not in [
-                    "model_name",
-                    "provider_hint",
-                    "api_key",
-                    "base_url",
-                    "temperature",
-                    "max_tokens",
-                    "system_prompt",
-                    "stream",
-                ]
-                and k not in call_kwargs
-            ):
-                call_kwargs[k] = v
+        # ... add other config_params ...
         try:
-            logger.debug(
-                f"Calling LiteLLM streaming completion for {self.model_name} with relevant kwargs: { {k: v for k, v in call_kwargs.items() if k != 'messages'} }"
-            )
             response_stream = litellm.completion(**call_kwargs)
             for chunk in response_stream:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                    content_chunk = chunk.choices[0].delta.content
-                    yield content_chunk
+                    yield chunk.choices[0].delta.content
         except Exception as e:
             logger.error(f"LiteLLM streaming error for model {self.model_name}: {e}", exc_info=True)
-            yield f"Error streaming from LLM ({self.model_name}): {e.__class__.__name__} - {e!s}"
+            yield f"Error streaming from LLM ({self.raw_model_name}): {e.__class__.__name__} - {str(e)[:100]}"
 
     @staticmethod
     def list_models(
         provider: Optional[str] = None, client_config: Optional[Dict[str, Any]] = None
     ) -> List[str]:
         logger.info(f"LiteLLMChat.list_models called for provider: {provider}")
-        cfg = client_config or {}
-        all_litellm_models_available = litellm.model_list
-        logger.debug(
-            f"LiteLLM.model_list contains {len(all_litellm_models_available)} initial entries."
-        )
+        cfg = client_config or {}  # Config from panel (API keys, base_url for Ollama)
 
-        ollama_timeout = cfg.get("timeout", 30)  # Default timeout for Ollama client list
-        common_suffix_blocklist = MODEL_BLOCKLISTS.get("google_suffix_blocklist", [])
+        final_model_list: List[str] = []
 
         if provider and provider.lower() == "ollama":
-            logger.info("Attempting to list Ollama models.")
-            # Use base_url from client_config if provided for Ollama listing
-            ollama_base_url_from_config = cfg.get("base_url")
-            ollama_host_env = os.getenv("OLLAMA_HOST")
-            litellm_ollama_base_url_env = os.getenv("LITELLM_OLLAMA_BASE_URL")
-
-            ollama_base_url_to_use = (
-                ollama_base_url_from_config or ollama_host_env or litellm_ollama_base_url_env
+            logger.info("Attempting to list Ollama models dynamically.")
+            ollama_base_url = (
+                cfg.get("base_url")
+                or os.getenv("OLLAMA_HOST")
+                or os.getenv("LITELLM_OLLAMA_BASE_URL")
+                or "http://localhost:11434"
             )
+            ollama_timeout = cfg.get("timeout", 10)  # Shorter timeout for listing
 
-            if not ollama_base_url_to_use:
-                ollama_base_url_to_use = "http://localhost:11434"
-                logger.info(
-                    f"No Ollama host/base_url configured or found in env, defaulting to: {ollama_base_url_to_use} for dynamic listing."
-                )
+            try:
+                import ollama as ollama_client_lib  # Requires 'pip install ollama'
 
-            if ollama_base_url_to_use:
-                logger.info(
-                    f"Attempting to dynamically list Ollama models from: {ollama_base_url_to_use} with timeout {ollama_timeout}s"
-                )
-                try:
-                    import ollama as ollama_client_lib
+                client = ollama_client_lib.Client(host=ollama_base_url, timeout=ollama_timeout)
+                models_info = client.list()  # This is a blocking call
 
-                    client_params = {"host": ollama_base_url_to_use, "timeout": ollama_timeout}
-                    client = ollama_client_lib.Client(**client_params)
-                    models_info = client.list()  # This is a blocking call
-                    logger.debug(f"Ollama dynamic list raw response: {models_info}")
+                if models_info and "models" in models_info:
+                    raw_ollama_models = [
+                        m.get("model", m.get("name"))
+                        for m in models_info["models"]
+                        if m.get("model", m.get("name"))
+                    ]
+                    raw_ollama_models = sorted(list(set(raw_ollama_models)))  # Unique, sorted
+                    logger.info(
+                        f"Dynamically listed {len(raw_ollama_models)} unique models from Ollama host {ollama_base_url} before filtering."
+                    )
 
-                    if not models_info or "models" not in models_info:
-                        logger.warning(
-                            f"Dynamic Ollama listing from {ollama_base_url_to_use} returned no 'models' key or unexpected format."
-                        )
-                        ollama_models_raw = []
-                    else:
-                        ollama_models_raw = []
-                        for model_data in models_info.get("models", []):
-                            model_name = model_data.get("model", model_data.get("name"))
-                            if model_name:
-                                ollama_models_raw.append(model_name)
-
-                        ollama_models_raw = sorted(list(set(ollama_models_raw)))
-                        logger.info(
-                            f"Dynamically listed {len(ollama_models_raw)} unique models from Ollama host {ollama_base_url_to_use} before filtering."
-                        )
-                        logger.debug(f"Raw dynamic Ollama models: {ollama_models_raw}")
-
-                    specific_ollama_blocklist = MODEL_BLOCKLISTS.get("ollama", [])
-                    filtered_ollama_models = []
-                    for m_name in ollama_models_raw:
-                        passes_blocklist = not any(
-                            blocked_name in m_name for blocked_name in specific_ollama_blocklist
-                        )
-                        passes_hyphen_check = m_name.count("-") < 3
-                        passes_num_suffix_check = not _ends_with_hyphen_numbers(m_name)
-                        passes_common_suffix = not any(
-                            suffix in m_name for suffix in common_suffix_blocklist
-                        )
-
-                        if (
-                            passes_blocklist
-                            and passes_hyphen_check
-                            and passes_num_suffix_check
-                            and passes_common_suffix
-                        ):
-                            filtered_ollama_models.append(m_name)
+                    for (
+                        model_name_fq
+                    ) in raw_ollama_models:  # model_name_fq is like 'llama2:latest' or 'mistral:7b'
+                        base_model_name = model_name_fq.split(":")[
+                            0
+                        ]  # Get 'llama2' from 'llama2:latest'
+                        if not _is_model_blocked(
+                            base_model_name, "ollama"
+                        ) and not _is_model_blocked(
+                            model_name_fq, "ollama"
+                        ):  # Check both base and FQ
+                            final_model_list.append(base_model_name)  # Add the base name
                         else:
                             logger.debug(
-                                f"Ollama dynamic model '{m_name}' filtered out. Blocklist: {not passes_blocklist}, Hyphen: {not passes_hyphen_check}, NumSuffix: {not passes_num_suffix_check}, CommonSuffix: {not passes_common_suffix}"
+                                f"Ollama dynamic model '{model_name_fq}' (base: {base_model_name}) filtered out by blocklist."
                             )
-
-                    logger.info(
-                        f"Dynamically found {len(ollama_models_raw)} models, filtered to {len(filtered_ollama_models)} Ollama models."
-                    )
-                    return filtered_ollama_models
-                except ImportError:
+                    final_model_list = sorted(list(set(final_model_list)))  # Unique base names
+                else:
                     logger.warning(
-                        "Python 'ollama' package not installed. Falling back to static list for Ollama models. "
-                        "Install with: pip install ollama"
+                        f"Dynamic Ollama listing from {ollama_base_url} returned no 'models' or unexpected format."
                     )
-                except (
-                    Exception
-                ) as e:  # Catch broader exceptions from client.list() like connection errors
-                    logger.error(
-                        f"Failed to dynamically list Ollama models from {ollama_base_url_to_use}: {e}. Falling back to static list.",
-                        exc_info=False,
-                    )
+            except ImportError:
+                logger.warning(
+                    "Python 'ollama' package not installed. Cannot dynamically list Ollama models. Install with: pip install ollama"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to dynamically list Ollama models from {ollama_base_url}: {e}. Check Ollama server.",
+                    exc_info=False,
+                )
 
-            logger.info("Executing Ollama static list fallback.")
-            ollama_specific_blocklist = MODEL_BLOCKLISTS.get("ollama", [])
-            ollama_models_from_static_list = []
-            for m_fq in all_litellm_models_available:
-                if m_fq.startswith("ollama/"):
-                    model_name_part = m_fq.split("/", 1)[1]
-                    logger.debug(
-                        f"Considering static Ollama model: {m_fq} (name part: {model_name_part})"
-                    )
+            if not final_model_list:  # Fallback to static list if dynamic fails or returns empty
+                logger.info(
+                    "Falling back to static list for Ollama models from litellm.model_list."
+                )
+                for m_fq in litellm.model_list:
+                    if m_fq.startswith("ollama/"):
+                        model_name_part = m_fq.split("/", 1)[1]
+                        if not _is_model_blocked(model_name_part, "ollama"):
+                            final_model_list.append(model_name_part)
+                final_model_list = sorted(list(set(final_model_list)))
+            logger.info(f"Prepared {len(final_model_list)} Ollama models for TUI.")
+            return final_model_list
 
-                    passes_blocklist = not any(
-                        blocked_name in model_name_part
-                        for blocked_name in ollama_specific_blocklist
-                    )
-                    passes_hyphen_check = model_name_part.count("-") < 3
-                    passes_num_suffix_check = not _ends_with_hyphen_numbers(model_name_part)
-                    passes_common_suffix = not any(
-                        suffix in model_name_part for suffix in common_suffix_blocklist
-                    )
+        elif provider:  # For other providers (OpenAI, Google Gemini, etc.)
+            logger.info(f"Listing models for non-Ollama provider: {provider}")
+            # LiteLLM's model_list contains fully qualified names like "openai/gpt-3.5-turbo" or just "gpt-3.5-turbo"
+            # We need to filter based on the provider hint and then extract the base model name.
 
-                    if (
-                        passes_blocklist
-                        and passes_hyphen_check
-                        and passes_num_suffix_check
-                        and passes_common_suffix
-                    ):
-                        ollama_models_from_static_list.append(model_name_part)
-                    else:
-                        logger.debug(
-                            f"Static Ollama model '{model_name_part}' from '{m_fq}' filtered out. Blocklist: {not passes_blocklist}, Hyphen: {not passes_hyphen_check}, NumSuffix: {not passes_num_suffix_check}, CommonSuffix: {not passes_common_suffix}"
-                        )
+            # Set API key for the provider if in config, as some listing might need it
+            provider_env_key_map = {
+                "openai": "OPENAI_API_KEY",
+                "google": "GOOGLE_API_KEY",  # For Gemini
+                "anthropic": "ANTHROPIC_API_KEY",
+            }
+            api_key_from_config = cfg.get("api_key")
+            original_env_val = None
+            env_key_to_set = provider_env_key_map.get(provider.lower())
 
-            logger.info(
-                f"Using static list fallback: Found {len(ollama_models_from_static_list)} 'ollama/' prefixed models from litellm.model_list after all filters."
-            )
-            return sorted(list(set(ollama_models_from_static_list)))
+            if env_key_to_set and api_key_from_config and not os.getenv(env_key_to_set):
+                original_env_val = os.getenv(env_key_to_set)  # Should be None if not set
+                os.environ[env_key_to_set] = api_key_from_config
+                logger.debug(f"Temporarily set {env_key_to_set} for model listing.")
 
-        processed_models = []
-        if provider:
-            provider_lower = provider.lower()
-            logger.info(f"Listing models for non-Ollama provider: {provider_lower}")
-            specific_provider_blocklist = MODEL_BLOCKLISTS.get(provider_lower, [])
+            try:
+                # Some providers might have their own listing functions via litellm, or use litellm.get_model_list()
+                # For simplicity, we'll iterate litellm.model_list and filter.
+                # litellm.get_model_list(provider=provider) might be an option for some.
 
-            for model_id_fq in all_litellm_models_available:
-                logger.debug(f"Considering model from litellm.model_list: {model_id_fq}")
-                try:
-                    parts = model_id_fq.split("/", 1)
-                    model_actual_provider = ""
+                for model_id_fq in (
+                    litellm.model_list
+                ):  # e.g., "gpt-3.5-turbo", "openai/gpt-4o", "gemini/gemini-pro"
+                    model_provider_guess = ""
                     model_base_name = model_id_fq
 
-                    if len(parts) == 2:
-                        model_actual_provider = parts[0].lower()
+                    if "/" in model_id_fq:
+                        parts = model_id_fq.split("/", 1)
+                        model_provider_guess = parts[0].lower()
                         model_base_name = parts[1]
-                    elif provider_lower == "openai" and (
-                        model_id_fq.startswith("gpt-") or model_id_fq.startswith("ft:gpt-")
-                    ):
-                        model_actual_provider = "openai"
-                    elif provider_lower == "google" and (
-                        "gemini" in model_id_fq or model_id_fq.startswith("models/")
-                    ):
-                        model_actual_provider = "google"
+                    else:  # No prefix, try to guess based on name structure
+                        if model_id_fq.startswith("gpt-"):
+                            model_provider_guess = "openai"
+                        elif "gemini" in model_id_fq:
+                            model_provider_guess = "google"
+                        # Add more guesses if needed
 
-                    if model_actual_provider == provider_lower:
-                        logger.debug(
-                            f"Matched provider for model '{model_id_fq}'. Base name: '{model_base_name}'. Applying filters."
+                    if (
+                        model_provider_guess == provider.lower()
+                        or (
+                            (provider.lower() == "openai" and model_provider_guess == "")
+                            and model_id_fq.startswith("gpt-")
                         )
-                        passes_blocklist = model_base_name not in specific_provider_blocklist
-                        passes_common_suffix = not any(
-                            suffix in model_base_name for suffix in common_suffix_blocklist
+                        or (
+                            (provider.lower() == "google" and model_provider_guess == "")
+                            and "gemini" in model_id_fq
                         )
-                        passes_hyphen_check = model_base_name.count("-") < 3
-                        passes_num_suffix_check = not _ends_with_hyphen_numbers(model_base_name)
-
-                        if (
-                            passes_blocklist
-                            and passes_common_suffix
-                            and passes_hyphen_check
-                            and passes_num_suffix_check
-                        ):
-                            processed_models.append(model_base_name)
+                    ):  # Match provider
+                        if not _is_model_blocked(
+                            model_base_name, provider
+                        ) and not _is_model_blocked(
+                            model_id_fq, provider
+                        ):  # Check both base and FQ
+                            final_model_list.append(model_base_name)  # Add the base name
                         else:
                             logger.debug(
-                                f"Model '{model_base_name}' for provider '{provider_lower}' filtered out. Blocklist: {not passes_blocklist}, CommonSuffix: {not passes_common_suffix}, Hyphen: {not passes_hyphen_check}, NumSuffix: {not passes_num_suffix_check}"
+                                f"Model '{model_id_fq}' (base: {model_base_name}) for provider '{provider}' filtered out by blocklist."
                             )
-                except Exception as e:
-                    logger.debug(
-                        f"Could not process model_id '{model_id_fq}' for provider '{provider_lower}': {e}"
-                    )
-        else:
+            finally:  # Restore env var if we changed it
+                if (
+                    env_key_to_set
+                    and api_key_from_config
+                    and os.getenv(env_key_to_set) == api_key_from_config
+                ):
+                    if original_env_val is None:
+                        del os.environ[env_key_to_set]
+                        logger.debug(f"Cleared temporarily set {env_key_to_set}.")
+                    else:  # This case should not happen if we only set if not os.getenv()
+                        os.environ[env_key_to_set] = original_env_val
+                        logger.debug(f"Restored {env_key_to_set}.")
+
+            final_model_list = sorted(list(set(final_model_list)))
+            logger.info(
+                f"Prepared {len(final_model_list)} models for provider '{provider}' for TUI."
+            )
+            return final_model_list
+
+        else:  # No provider specified, and not Ollama
             logger.warning(
-                "LiteLLMChat.list_models called without provider (and not Ollama), returning empty list."
+                "LiteLLMChat.list_models called without a specific provider (and not Ollama). Returning empty list."
             )
             return []
-
-        final_list = sorted(list(set(processed_models)))
-        if provider and provider.lower() != "ollama":
-            logger.info(
-                f"LiteLLM: Prepared {len(final_list)} models for provider '{provider}' (non-Ollama path) for TUI after all filters. Final list: {final_list}"
-            )
-        return final_list
