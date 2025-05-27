@@ -35,7 +35,7 @@ def db_connection_active(
         return True
     except (MEConnectionLibFailure, PyMongoNetworkConnectionFailure, PyMongoOperationFailure) as e:
         logger.info(
-            f"No existing live MongoEngine connection for alias '{alias}' (Error: {e}). Attempting new connection."
+            f"No existing live MongoEngine connection for alias '{alias}' (Error: {type(e).__name__}). Attempting new connection."
         )
         try:
             me_disconnect(alias)
@@ -88,7 +88,7 @@ def get_mongo_db(alias: str = DEFAULT_ALIAS) -> PyMongoDatabase:
         get_connection(alias)
         db = me_get_db(alias)
         return db
-    except MEConnectionLibFailure as e:
+    except (MEConnectionLibFailure, MENotRegisteredError) as e:
         logger.error(
             f"Attempted to get database for alias '{alias}' but no active connection registered for it."
         )
@@ -110,37 +110,61 @@ def disconnect_mongo(alias: str = DEFAULT_ALIAS) -> None:
 
 
 def disconnect_all_mongo() -> None:
+    # Reverted to using internal attributes as get_aliases() might not be available
     try:
         from mongoengine import connection as me_connection_module
 
+        # Accessing internal attributes directly - this can be fragile
         aliases_to_disconnect = list(getattr(me_connection_module, "_connections", {}).keys())
         for alias_name in aliases_to_disconnect:
             try:
                 me_disconnect(alias_name)
+                logger.info(
+                    f"MongoEngine connection with alias '{alias_name}' disconnected via _connections."
+                )
             except MENotRegisteredError:
-                logger.debug(f"Alias {alias_name} was already gone during disconnect_all.")
+                logger.debug(
+                    f"Alias {alias_name} from _connections was already gone during disconnect_all."
+                )
             except MEConnectionLibFailure as e:
                 logger.warning(
-                    f"Connection library failure during disconnect_all for alias '{alias_name}': {e}"
+                    f"Connection library failure during disconnect_all for alias '{alias_name}' from _connections: {e}"
                 )
 
-        if getattr(me_connection_module, "_connection_settings", {}).get(DEFAULT_ALIAS) or getattr(
-            me_connection_module, "_connections", {}
-        ).get(DEFAULT_ALIAS):
-            if DEFAULT_ALIAS not in aliases_to_disconnect:
+        # Also check _connection_settings as a fallback, as an alias might be configured but not actively connected
+        settings_aliases = list(getattr(me_connection_module, "_connection_settings", {}).keys())
+        for alias_name in settings_aliases:
+            if (
+                alias_name not in aliases_to_disconnect
+            ):  # Avoid trying to disconnect again if already handled
                 try:
-                    me_disconnect(DEFAULT_ALIAS)
-                except (MENotRegisteredError, MEConnectionLibFailure):
-                    pass
+                    me_disconnect(alias_name)
+                    logger.info(
+                        f"MongoEngine connection with alias '{alias_name}' disconnected via _connection_settings."
+                    )
+                except MENotRegisteredError:
+                    # This is expected if the connection was never established
+                    logger.debug(
+                        f"Alias {alias_name} from _connection_settings was not an active connection to disconnect."
+                    )
+                except MEConnectionLibFailure as e:
+                    logger.warning(
+                        f"Connection library failure during disconnect_all for alias '{alias_name}' from _connection_settings: {e}"
+                    )
 
-        if "default" not in aliases_to_disconnect and (
-            getattr(me_connection_module, "_connection_settings", {}).get("default")
-            or getattr(me_connection_module, "_connections", {}).get("default")
-        ):
-            try:
-                me_disconnect()
-            except (MENotRegisteredError, MEConnectionLibFailure):
-                pass
+        # Explicitly try to disconnect DEFAULT_ALIAS and 'default' if they weren't in the lists,
+        # as they are common aliases that might have specific handling or states.
+        common_aliases_to_check = [DEFAULT_ALIAS, "default"]
+        for ca in common_aliases_to_check:
+            if ca not in aliases_to_disconnect and ca not in settings_aliases:
+                try:
+                    me_disconnect(ca)
+                    logger.info(f"Explicit disconnect attempt for common alias '{ca}' successful.")
+                except (MENotRegisteredError, MEConnectionLibFailure):
+                    logger.debug(
+                        f"Explicit disconnect attempt for common alias '{ca}' found no active connection."
+                    )
+                    pass
 
     except Exception as e:
         logger.error(f"Error during disconnect_all_mongo: {e}", exc_info=True)

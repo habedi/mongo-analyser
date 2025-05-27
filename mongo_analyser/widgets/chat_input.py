@@ -1,9 +1,10 @@
 # mongo_analyser/widgets/chat_input.py
 from textual.app import ComposeResult
+from textual.css.query import NoMatches
 from textual.widgets import Input, Static
 
 
-class ChatInput(Static):  # Or whatever base class you decided, e.g., Container
+class ChatInput(Static):
     DEFAULT_CSS = """
     ChatInput {
         layout: horizontal;
@@ -23,14 +24,14 @@ class ChatInput(Static):  # Or whatever base class you decided, e.g., Container
     def value(self) -> str:
         try:
             return self.query_one(Input).value
-        except:  # Add specific exception if possible, e.g., NoMatches
+        except NoMatches:
             return ""
 
     @value.setter
     def value(self, new_value: str) -> None:
         try:
             self.query_one(Input).value = new_value
-        except:  # Add specific exception
+        except NoMatches:
             pass
 
     def clear(self) -> None:
@@ -39,5 +40,5 @@ class ChatInput(Static):  # Or whatever base class you decided, e.g., Container
     def focus(self, scroll_visible: bool = True) -> None:
         try:
             self.query_one(Input).focus(scroll_visible)
-        except:  # Add specific exception
+        except NoMatches:
             pass

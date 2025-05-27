@@ -1,21 +1,21 @@
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Markdown, Static  # Use Markdown for content
+from textual.widgets import Markdown, Static
 
 
-class ChatMessageWidget(Vertical):  # Vertical container for role + message
+class ChatMessageWidget(Vertical):
     DEFAULT_CSS = """
     ChatMessageWidget {
         width: 100%;
         height: auto;
         padding: 1;
         margin-bottom: 1;
-        border: round $primary-background-darken-2; /* Example border */
+        border: round $primary-background-darken-2;
     }
-    ChatMessageWidget .role_user { color: $success; } /* Example */
-    ChatMessageWidget .role_assistant { color: $secondary; } /* Example */
-    ChatMessageWidget .role_system { color: $warning; } /* Example */
+    ChatMessageWidget .role_user { color: $success; }
+    ChatMessageWidget .role_assistant { color: $secondary; }
+    ChatMessageWidget .role_system { color: $warning; }
     ChatMessageWidget > Markdown { background: transparent; margin-top: 0; }
     """
 
@@ -25,6 +25,6 @@ class ChatMessageWidget(Vertical):  # Vertical container for role + message
         self.content = content
 
     def compose(self) -> ComposeResult:
-        role_display = Text(f"{self.role.upper()}:", classes=f"role_{self.role.lower()}")
-        yield Static(role_display)
-        yield Markdown(self.content)  # Render content as Markdown
+        role_text = Text(f"{self.role.upper()}:")
+        yield Static(role_text, classes=f"role_{self.role.lower()}")
+        yield Markdown(self.content)

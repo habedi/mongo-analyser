@@ -167,14 +167,14 @@ class LiteLLMChat(LLMChat):
             if (
                 k
                 not in [
-                "model_name",
-                "provider_hint",
-                "api_key",
-                "base_url",
-                "temperature",
-                "max_tokens",
-                "system_prompt",
-            ]
+                    "model_name",
+                    "provider_hint",
+                    "api_key",
+                    "base_url",
+                    "temperature",
+                    "max_tokens",
+                    "system_prompt",
+                ]
                 and k not in call_kwargs
             ):
                 call_kwargs[k] = v
@@ -217,15 +217,15 @@ class LiteLLMChat(LLMChat):
             if (
                 k
                 not in [
-                "model_name",
-                "provider_hint",
-                "api_key",
-                "base_url",
-                "temperature",
-                "max_tokens",
-                "system_prompt",
-                "stream",
-            ]
+                    "model_name",
+                    "provider_hint",
+                    "api_key",
+                    "base_url",
+                    "temperature",
+                    "max_tokens",
+                    "system_prompt",
+                    "stream",
+                ]
                 and k not in call_kwargs
             ):
                 call_kwargs[k] = v

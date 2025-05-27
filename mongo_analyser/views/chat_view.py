@@ -1,18 +1,18 @@
+# mongo_analyser/views/chat_view.py
 import asyncio
 import functools
 import logging
 from typing import Dict, List, Optional
 
-from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
-from textual.widgets import Button, Input, Log, Select, Static
+from textual.widgets import Button, Input, Select, Static
 from textual.worker import Worker, WorkerCancelled, WorkerFailed, WorkerState
 
 from mongo_analyser.llm_chat import LiteLLMChat, LLMChat
-from mongo_analyser.widgets import LLMConfigPanel
+from mongo_analyser.widgets import ChatMessageList, LLMConfigPanel
 
 logger = logging.getLogger(__name__)
 
@@ -21,25 +21,21 @@ class ChatView(Container):
     current_llm_worker: Worker | None = None
     llm_client_instance: LLMChat | None = None
 
-    USER_PREFIX_Styled = Text.from_markup("[b #ECEFF4]USER:[/] ")
-    AI_PREFIX_Styled = Text.from_markup("[b #88C0D0]AI:[/] ")
-    SYSTEM_PREFIX_Styled = Text.from_markup("[b #EBCB8B]SYSTEM:[/] ")
+    ROLE_USER = "user"
+    ROLE_AI = "assistant"
+    ROLE_SYSTEM = "system"
 
-    def _log_chat_message(self, prefix_styled: Text, message_content: str):
+    # Removed custom __init__ method.
+    # Initialization of chat_history and llm_client_instance is handled in on_mount.
+
+    def _log_chat_message(self, role: str, message_content: str):
         try:
-            log_widget = self.query_one("#chat_log_widget", Log)
-            lines_in_message = message_content.splitlines()
-            if not lines_in_message and len(message_content) >= 0:
-                lines_in_message = [message_content]
-            elif not lines_in_message and len(message_content) == 0:
-                lines_in_message = [""]
-
-            for line_part in lines_in_message:
-                plain_prefix = prefix_styled.plain
-                plain_line_part = Text(line_part).plain
-                log_widget.write_line(f"{plain_prefix}{plain_line_part}")
+            chat_list_widget = self.query_one("#chat_log_widget", ChatMessageList)
+            chat_list_widget.add_message(role, message_content)
         except NoMatches:
             logger.warning("Chat log widget (#chat_log_widget) not found for logging message.")
+        except Exception as e:
+            logger.error(f"Error logging chat message: {e}", exc_info=True)
 
     def on_mount(self) -> None:
         logger.info("ChatView: on_mount CALLED.")
@@ -50,11 +46,11 @@ class ChatView(Container):
     def _reset_chat_log_and_status(self, status_message: str = "New session started.") -> None:
         self.chat_history = []
         try:
-            log_widget = self.query_one("#chat_log_widget", Log)
-            log_widget.clear()
+            log_widget = self.query_one("#chat_log_widget", ChatMessageList)
+            log_widget.clear_messages()
         except NoMatches:
             logger.warning("Chat log widget not found for clearing during reset.")
-        self._log_chat_message(self.SYSTEM_PREFIX_Styled, status_message)
+        self._log_chat_message(self.ROLE_SYSTEM, status_message)
         self._update_chat_status_line(status="Idle", current_messages=0)
 
     def compose(self) -> ComposeResult:
@@ -65,9 +61,7 @@ class ChatView(Container):
                     id="chat_status_line",
                     classes="chat_status",
                 )
-                with VerticalScroll(id="chat_log_scroll", classes="chat_log_container"):
-                    # Removed wrap=True from the Log widget as it's not a valid argument
-                    yield Log(id="chat_log_widget", auto_scroll=True, highlight=True)
+                yield ChatMessageList(id="chat_log_widget")
 
                 with Horizontal(id="chat_input_bar", classes="chat_input_container"):
                     yield Input(
@@ -101,7 +95,12 @@ class ChatView(Container):
 
             provider_val = llm_config_panel.provider
             model_val = llm_config_panel.model
-            max_ctx_val = llm_config_panel.max_context_size
+
+            max_tokens_display = "N/A"
+            if self.llm_client_instance and hasattr(self.llm_client_instance, "max_tokens"):
+                max_tokens_display = str(self.llm_client_instance.max_tokens)
+            elif "max_tokens" in llm_config_panel.get_llm_config():
+                max_tokens_display = str(llm_config_panel.get_llm_config().get("max_tokens", "N/A"))
 
             provider_display = str(provider_val).capitalize() if provider_val else "N/A"
             model_display = str(model_val) if model_val else "N/A"
@@ -115,7 +114,7 @@ class ChatView(Container):
             current_msg_count = (
                 current_messages if current_messages is not None else len(self.chat_history)
             )
-            context_display = f"{current_msg_count} turns / {max_ctx_val if max_ctx_val is not None else 'N/A'} tokens"
+            context_display = f"{current_msg_count} turns / {max_tokens_display} tokens"
 
             chat_status_widget.update(
                 f"Provider: {provider_display} | Model: {model_display} | Context: {context_display} | Status: {status}"
@@ -137,7 +136,7 @@ class ChatView(Container):
         if self.llm_client_instance:
             self.llm_client_instance = None
             logger.info("ChatView: LLM client instance cleared due to provider change.")
-            self._log_chat_message(self.SYSTEM_PREFIX_Styled, "Provider changed. LLM client reset.")
+            self._log_chat_message(self.ROLE_SYSTEM, "Provider changed. LLM client reset.")
         await self._load_models_for_provider(event.provider)
 
     async def _load_models_for_provider(self, provider_value: Optional[str]) -> None:
@@ -166,9 +165,7 @@ class ChatView(Container):
                 True, f"Loading models for {provider_value_str}..."
             )
             self._update_chat_status_line(status=f"Loading {provider_value_str} models...")
-            self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled, f"Fetching models for {provider_value_str}..."
-            )
+            self._log_chat_message(self.ROLE_SYSTEM, f"Fetching models for {provider_value_str}...")
 
         listed_models: List[str] = []
         error_message: str | None = None
@@ -215,7 +212,7 @@ class ChatView(Container):
         if error_message:
             llm_config_panel.update_models_list([], error_message)
             llm_config_panel.model = None
-            self._log_chat_message(self.SYSTEM_PREFIX_Styled, error_message)
+            self._log_chat_message(self.ROLE_SYSTEM, error_message)
             self._update_chat_status_line(status="Model list error")
         elif listed_models:
             model_options = [(name, name) for name in listed_models]
@@ -247,24 +244,17 @@ class ChatView(Container):
 
             if default_model_to_set:
                 llm_config_panel.model = default_model_to_set
-                self._log_chat_message(
-                    self.SYSTEM_PREFIX_Styled,
-                    f"{len(listed_models)} models found. Selected: {default_model_to_set}.",
-                )
             else:
                 llm_config_panel.update_models_list([], "No models found.")
                 llm_config_panel.model = None
                 self._log_chat_message(
-                    self.SYSTEM_PREFIX_Styled, f"No models available for {provider_value_str}."
+                    self.ROLE_SYSTEM, f"No models available for {provider_value_str}."
                 )
                 self._update_chat_status_line(status="No models")
-
         else:
             llm_config_panel.update_models_list([], "No models found.")
             llm_config_panel.model = None
-            self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled, f"No models found for {provider_value_str}."
-            )
+            self._log_chat_message(self.ROLE_SYSTEM, f"No models found for {provider_value_str}.")
             self._update_chat_status_line(status="No models")
 
     @on(LLMConfigPanel.ModelChanged)
@@ -275,7 +265,7 @@ class ChatView(Container):
             f"ChatView: handle_model_change_from_llm_config_panel CALLED with model: {event.model}"
         )
         model_value = event.model
-        if model_value:
+        if model_value and model_value != Select.BLANK:
             self._reset_chat_log_and_status(
                 status_message=f"Model set to: {model_value}. Session reset."
             )
@@ -286,12 +276,10 @@ class ChatView(Container):
 
             client_created = self._create_and_set_llm_client()
             if client_created:
-                self._log_chat_message(
-                    self.SYSTEM_PREFIX_Styled, "Session ready. LLM client configured."
-                )
+                self._log_chat_message(self.ROLE_SYSTEM, "Session ready. LLM client configured.")
                 self._update_chat_status_line(status="Ready")
             else:
-                self._log_chat_message(self.SYSTEM_PREFIX_Styled, "Failed to configure LLM client.")
+                self._log_chat_message(self.ROLE_SYSTEM, "Failed to configure LLM client.")
                 self._update_chat_status_line(status="Client Error")
 
             try:
@@ -302,9 +290,7 @@ class ChatView(Container):
             if self.llm_client_instance:
                 self.llm_client_instance = None
                 logger.info("ChatView: LLM client instance cleared due to model deselection.")
-                self._log_chat_message(
-                    self.SYSTEM_PREFIX_Styled, "Model deselected. LLM client cleared."
-                )
+                self._log_chat_message(self.ROLE_SYSTEM, "Model deselected. LLM client cleared.")
             self._update_chat_status_line(status="Select model")
 
     def _create_and_set_llm_client(self) -> bool:
@@ -312,31 +298,32 @@ class ChatView(Container):
             llm_config_panel = self.query_one(LLMConfigPanel)
         except NoMatches:
             logger.error("ChatView: LLMConfigPanel not found when trying to create LLM client.")
-            self._log_chat_message(self.SYSTEM_PREFIX_Styled, "LLM Configuration panel not found.")
+            self._log_chat_message(self.ROLE_SYSTEM, "LLM Configuration panel not found.")
             return False
 
         config = llm_config_panel.get_llm_config()
-
         raw_model_name = config.get("model_name")
         provider_hint = config.get("provider_hint")
 
         if not provider_hint:
             self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled, "Please select a provider in the config panel."
+                self.ROLE_SYSTEM, "Please select a provider in the config panel."
             )
             return False
-        if not raw_model_name:
-            self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled, "Please select a model in the config panel."
-            )
+        if not raw_model_name or raw_model_name == Select.BLANK:
+            self._log_chat_message(self.ROLE_SYSTEM, "Please select a model in the config panel.")
             return False
 
         logger.info(
             f"ChatView: Creating LiteLLMChat client with model_name='{raw_model_name}', config={config}"
         )
         try:
-            client_kwargs = {k: v for k, v in config.items() if k != "model_name"}
-            new_client = LiteLLMChat(model_name=raw_model_name, **client_kwargs)
+            client_kwargs = {
+                k: v for k, v in config.items() if k not in ["model_name", "provider_hint"]
+            }
+            new_client = LiteLLMChat(
+                model_name=str(raw_model_name), provider_hint=str(provider_hint), **client_kwargs
+            )
             self.llm_client_instance = new_client
             logger.info(
                 f"ChatView: LiteLLM client configured. Effective model for API: '{self.llm_client_instance.model_name}', Provider hint used: '{provider_hint}', Raw model name from panel: '{raw_model_name}'"
@@ -348,7 +335,7 @@ class ChatView(Container):
                 exc_info=True,
             )
             self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled,
+                self.ROLE_SYSTEM,
                 f"Error creating LLM client: {e.__class__.__name__} - {str(e)[:50]}...",
             )
             self.llm_client_instance = None
@@ -363,7 +350,7 @@ class ChatView(Container):
 
         if self.llm_client_instance is None:
             self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled,
+                self.ROLE_SYSTEM,
                 "LLM not configured. Please select provider/model and reset/start session.",
             )
             return
@@ -378,8 +365,7 @@ class ChatView(Container):
             logger.error("ChatView: Send or Stop button not found.")
             return
 
-        self._log_chat_message(self.USER_PREFIX_Styled, user_message)
-
+        self._log_chat_message(self.ROLE_USER, user_message)
         history_for_llm = self.chat_history.copy()
         self.chat_history.append({"role": "user", "content": user_message})
 
@@ -388,8 +374,6 @@ class ChatView(Container):
         send_button.disabled = True
         stop_button.disabled = False
         self._update_chat_status_line(status="Sending...", current_messages=len(self.chat_history))
-
-        self._log_chat_message(self.AI_PREFIX_Styled, "is thinking...")
 
         active_client = self.llm_client_instance
 
@@ -410,7 +394,7 @@ class ChatView(Container):
         try:
             response_text = await self.current_llm_worker.wait()
             if self.current_llm_worker and self.current_llm_worker.state == WorkerState.SUCCESS:
-                self._log_chat_message(self.AI_PREFIX_Styled, response_text)
+                self._log_chat_message(self.ROLE_AI, response_text)
                 self.chat_history.append({"role": "assistant", "content": response_text})
         except WorkerFailed as e:
             error_to_log = e.error
@@ -423,8 +407,7 @@ class ChatView(Container):
                 msg = "LLM call stopped by user."
             else:
                 msg = f"LLM Error: {error_to_log.__class__.__name__} - {str(error_to_log)[:50]}..."
-
-            self._log_chat_message(self.SYSTEM_PREFIX_Styled, msg)
+            self._log_chat_message(self.ROLE_SYSTEM, msg)
             if (
                 self.chat_history
                 and self.chat_history[-1]["role"] == "user"
@@ -433,9 +416,7 @@ class ChatView(Container):
                 self.chat_history.pop()
         except Exception as e:
             logger.error(f"ChatView: Unexpected error during LLM communication: {e}", exc_info=True)
-            self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled, f"Unexpected error: {e.__class__.__name__}"
-            )
+            self._log_chat_message(self.ROLE_SYSTEM, f"Unexpected error: {e.__class__.__name__}")
             if (
                 self.chat_history
                 and self.chat_history[-1]["role"] == "user"
@@ -444,11 +425,17 @@ class ChatView(Container):
                 self.chat_history.pop()
         finally:
             self.current_llm_worker = None
-            message_input.disabled = False
-            send_button.disabled = False
-            stop_button.disabled = True
-            self._update_chat_status_line(status="Ready")
-            message_input.focus()
+            if self.is_mounted:
+                try:
+                    message_input.disabled = False
+                    send_button.disabled = False
+                    stop_button.disabled = True
+                    self._update_chat_status_line(status="Ready")
+                    message_input.focus()
+                except Exception as e_fin:
+                    logger.warning(
+                        f"ChatView: Error in finally block of _send_user_message: {e_fin}"
+                    )
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
@@ -458,11 +445,9 @@ class ChatView(Container):
             if self.current_llm_worker and self.current_llm_worker.state == WorkerState.RUNNING:
                 logger.info("ChatView: Stop button pressed, cancelling LLM worker.")
                 self.current_llm_worker.cancel()
-                self._log_chat_message(
-                    self.SYSTEM_PREFIX_Styled, "Attempting to stop LLM response..."
-                )
+                self._log_chat_message(self.ROLE_SYSTEM, "Attempting to stop LLM response...")
             else:
-                self._log_chat_message(self.SYSTEM_PREFIX_Styled, "No active LLM call to stop.")
+                self._log_chat_message(self.ROLE_SYSTEM, "No active LLM call to stop.")
 
     @on(LLMConfigPanel.NewSessionRequested)
     async def handle_new_session_requested_from_llm_config_panel(
@@ -475,7 +460,11 @@ class ChatView(Container):
             logger.error("ChatView: LLMConfigPanel not found for new session request.")
             return
 
-        if llm_config_panel.provider is None or llm_config_panel.model is None:
+        if (
+            llm_config_panel.provider is None
+            or llm_config_panel.model is None
+            or llm_config_panel.model == Select.BLANK
+        ):
             self._reset_chat_log_and_status(
                 status_message="Select provider and model first for new session."
             )
@@ -492,13 +481,11 @@ class ChatView(Container):
 
         client_created = self._create_and_set_llm_client()
         if client_created:
-            self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled, "LLM client (re)configured for new session."
-            )
+            self._log_chat_message(self.ROLE_SYSTEM, "LLM client (re)configured for new session.")
             self._update_chat_status_line(status="Ready")
         else:
             self._log_chat_message(
-                self.SYSTEM_PREFIX_Styled, "Failed to (re)configure LLM client for new session."
+                self.ROLE_SYSTEM, "Failed to (re)configure LLM client for new session."
             )
             self._update_chat_status_line(status="Client Error")
 
