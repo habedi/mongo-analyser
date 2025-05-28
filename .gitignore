@@ -41,6 +41,7 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+.benchmarks/
 
 # IDE specific files and directories
 .idea/
@@ -71,6 +72,9 @@ out2/
 # Dependency lock files (uncomment to ignore)
 poetry.lock
 
+# Documentation files
+site/
+
 # Miscellaneous files and directories to ignore
 # Add any additional file patterns a directory names that should be ignored down here
 *.csv
@@ -80,3 +84,7 @@ poetry.lock
 *.xlsx
 *.zip
 *.cast
+*.env
+*_output.txt
+.chat_history*.txt
+.mongo_analyser_core_history.txt
