@@ -1,3 +1,2 @@
-from mongo_analyser.analyser import SchemaAnalyser
-from mongo_analyser.extractor import DataExtractor
-from mongo_analyser.shared import BaseAnalyser
+from mongo_analyser.core.analyser import SchemaAnalyser
+from mongo_analyser.core.extractor import DataExtractor

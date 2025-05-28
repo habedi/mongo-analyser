@@ -1,100 +1,134 @@
-[tool.poetry]
+[project]
 name = "mongo-analyser"
-version = "0.1.6"
-description = "A tool for analysing and extracting the schemas of MongoDB collections"
-authors = ["Hassan Abedi <hassan.abedi.t@gmail.com>"]
-maintainers = ["Hassan Abedi <hassan.abedi.t@gmail.com>"]
-license = "MIT"
+version = "0.2.0a1"
+description = "A tool for analyzing and understanding the data stored in MongoDB databases"
 readme = "README.md"
-include = ["README.md"]
-packages = [{ include = "mongo_analyser", from = "." }]
-repository = "https://github.com/habedi/mongo-analyser"
-documentation = "https://github.com/habedi/mongo-analyser/blob/main/docs/index.md"
-classifiers = [
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Programming Language :: Python :: 3",
+license = { text = "MIT" }
+authors = [
+    { name = "Hassan Abedi", email = "hassan.abedi.t@gmail.com" }
 ]
-keywords = ["mongodb", "python", "nosql", "command-line tool", "json"]
+maintainers = [
+    { name = "Hassan Abedi", email = "hassan.abedi.t@gmail.com" }
+]
+keywords = ["mongodb", "nosql", "json", "artificial intelligence"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
 
-[tool.poetry.dependencies]
-python = "^3.9"
-pymongo = "^4.10.1"
-pytz = "^2025.1"
+requires-python = ">=3.10,<4.0"
+dependencies = [
+    "pymongo (>=4.11.3,<5.0.0)",
+    "pytz (>=2025.1,<2026.0)",
+    "python-dotenv (>=1.1.0,<2.0.0)",
+    "ollama (>=0.4.8,<0.5.0)",
+    "openai (>=1.81.0,<2.0.0)",
+    "mongoengine (>=0.29.1,<0.30.0)",
+    "google-generativeai (>=0.8.5,<0.9.0)",
+    "textual (>=3.2.0,<4.0.0)",
+    "litellm (>=1.71.0,<2.0.0)",
+]
 
-# Development dependencies (needs `--with dev` flag)
-[tool.poetry.dev-dependencies]
-poetry-dynamic-versioning = "^1.4.0"
-pytest = "^8.0.1"
-pytest-cov = "^6.0.0"
-pytest-mock = "^3.14.0"
-mypy = "^1.11.1"
-ruff = "^0.9.9"
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.1",
+    "pytest-cov>=6.0.0",
+    "pytest-mock>=3.14.0",
+    "pytest-asyncio (>=0.26.0,<0.27.0)",
+    "mypy>=1.11.1",
+    "ruff>=0.9.3",
+    "pre-commit (>=4.2.0,<5.0.0)",
+    "griffe (>=1.7.3,<2.0.0)",
+    "mkdocs (>=1.6.1,<2.0.0)",
+    "mkdocstrings-python (>=1.16.10,<2.0.0)",
+    "mkdocs-material (>=9.6.14,<10.0.0)",
+    "types-requests (>=2.32.0.20250515,<3.0.0.0)",
+    "icecream (>=2.1.4,<3.0.0)"
+]
 
-[tool.poetry.scripts]
+[project.scripts]
 mongo_analyser = "mongo_analyser.cli:main"
+
+[project.urls]
+Repository = "https://github.com/habedi/mongo-analyser"
+Documentation = "https://github.com/habedi/mongo-analyser/blob/main/docs/index.md"
+
+[tool.poetry]
+include = ["README.md"]
+packages = [{ include = "mongo_analyser" }]
+package-mode = true
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
-pythonpath = [".", "mongo_analyser"]
-addopts = "tests/ --cov --doctest-modules --cov-report=xml -s"
+pythonpath = ["mongo_analyser"]
+testpaths = ["tests"]
+addopts = [
+    "--tb=short",
+    #"--disable-warnings",
+    "--cov=mongo_analyser",
+    "--cov-branch",
+    "--cov-report=term",
+    "--cov-report=xml",
+    "-rs"
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+
+[tool.coverage.run]
+branch = true
+parallel = true
+source = ["mongo_analyser"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = false
+skip_empty = true
+precision = 2
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 ignore_missing_imports = true
+disallow_untyped_defs = true
 disallow_untyped_calls = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_return_any = true
 strict_optional = true
 warn_redundant_casts = true
+exclude = "^(examples/|tests/)"
 
-[tool.poetry-dynamic-versioning]
-enable = true
-vcs = "git"
-versioning = "semver"  # Semantic Versioning
-
-# Ruff configuration
 [tool.ruff]
 exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
+    ".bzr", ".direnv", ".eggs", ".git", ".git-rewrite", ".hg", ".mypy_cache",
+    ".nox", ".pants.d", ".pytype", ".ruff_cache", ".svn", ".tox", ".venv",
+    "__pypackages__", "_build", "buck-out", "build", "dist", "node_modules",
     "venv",
-    # Exclude the following extra directories
-    "tests",
-    "docs",
+    "tests"
 ]
 line-length = 100
 indent-width = 4
-src = ["mongo_analyser", "tests"]
-target-version = "py311"
+src = ["mongo_analyser"]
+target-version = "py310"
+unsafe-fixes = false
 
 [tool.ruff.lint]
-select = ["ANN", "D", "E", "F", "I"]
-ignore = [
-    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
-]
+select = ["ANN", "E", "F", "I", "W", "B", "RUF", "SIM", "C90"]
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 fixable = ["ALL"]
 unfixable = []
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"  # Ignore dummy variables
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.format]
 quote-style = "double"
