@@ -1,6 +1,6 @@
+import functools  # Import functools
 import logging
 import os
-import functools  # Import functools
 from typing import Any, Dict, List, Optional, Tuple
 
 from rich.text import Text
@@ -21,9 +21,11 @@ logger = logging.getLogger(__name__)
 
 def _format_bytes_tui(size_bytes: Any) -> str:
     import math
+
     if size_bytes is None or not isinstance(size_bytes, (int, float)) or size_bytes < 0:
         return "N/A"
-    if size_bytes == 0: return "0 B"
+    if size_bytes == 0:
+        return "0 B"
     size_name = ("B", "KB", "MB", "GB", "TB")
     try:
         i = int(math.floor(math.log(size_bytes, 1024)))
@@ -33,7 +35,8 @@ def _format_bytes_tui(size_bytes: Any) -> str:
             i = 0
     except ValueError:
         i = 0 if size_bytes > 0 else -1
-        if i == -1: return "N/A"
+        if i == -1:
+            return "N/A"
 
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
@@ -80,15 +83,17 @@ class DBConnectionView(Container):
     def on_mount(self) -> None:
         collections_table = self.query_one("#collections_data_table", DataTable)
         if not collections_table.columns:
-            collections_table.add_columns("Name", "Docs", "Avg Size", "Total Size", "Storage Size",
-                                          "Indexes")
+            collections_table.add_columns(
+                "Name", "Docs", "Avg Size", "Total Size", "Storage Size", "Indexes"
+            )
         collections_table.visible = False
         self.query_one("#collections_title_label", Label).visible = False
 
         indexes_table = self.query_one("#indexes_data_table", DataTable)
         if not indexes_table.columns:
-            indexes_table.add_columns("Name", "Fields (Key)", "Unique", "Sparse", "Background",
-                                      "Other Props")
+            indexes_table.add_columns(
+                "Name", "Fields (Key)", "Unique", "Sparse", "Background", "Other Props"
+            )
         indexes_table.visible = False
         self.query_one("#indexes_title_label", Label).visible = False
 
@@ -110,7 +115,6 @@ class DBConnectionView(Container):
     async def _connect_and_list_collections_task(
         self, uri: str, db_name_from_input: Optional[str]
     ) -> Tuple[bool, Text, List[Dict[str, Any]], Optional[str], Optional[str]]:
-
         collections_with_stats: List[Dict[str, Any]] = []
 
         is_active = core_db_manager.db_connection_active(
@@ -124,7 +128,9 @@ class DBConnectionView(Container):
             return (
                 False,
                 Text.from_markup(f"[#BF616A]Connection Failed to {redact_uri_password(uri)}[/]"),
-                [], None, None,
+                [],
+                None,
+                None,
             )
 
         db_instance = core_db_manager.get_mongo_db()
@@ -137,33 +143,47 @@ class DBConnectionView(Container):
                 collection_names_list.append(name)
                 try:
                     coll_stats = db_instance.command("collStats", name)
-                    collections_with_stats.append({
-                        "name": name,
-                        "count": coll_stats.get("count", "N/A"),
-                        "avgObjSize": coll_stats.get("avgObjSize", "N/A"),
-                        "size": coll_stats.get("size", "N/A"),
-                        "storageSize": coll_stats.get("storageSize", "N/A"),
-                        "nindexes": coll_stats.get("nindexes", "N/A"),
-                    })
+                    collections_with_stats.append(
+                        {
+                            "name": name,
+                            "count": coll_stats.get("count", "N/A"),
+                            "avgObjSize": coll_stats.get("avgObjSize", "N/A"),
+                            "size": coll_stats.get("size", "N/A"),
+                            "storageSize": coll_stats.get("storageSize", "N/A"),
+                            "nindexes": coll_stats.get("nindexes", "N/A"),
+                        }
+                    )
                 except Exception as e_stats:
                     logger.warning(f"Could not get stats for collection {name}: {e_stats}")
                     collections_with_stats.append(
-                        {"name": name, "count": "N/A", "avgObjSize": "N/A", "size": "N/A",
-                         "storageSize": "N/A", "nindexes": "N/A"})
+                        {
+                            "name": name,
+                            "count": "N/A",
+                            "avgObjSize": "N/A",
+                            "size": "N/A",
+                            "storageSize": "N/A",
+                            "nindexes": "N/A",
+                        }
+                    )
 
         except Exception as e_list:
             logger.error(
                 f"Failed to list collections or their stats for DB '{actual_db_name}': {e_list}",
-                exc_info=True)
+                exc_info=True,
+            )
             return (
                 False,
                 Text.from_markup(
-                    f"[#BF616A]Connected, but failed to list collections/stats for {actual_db_name}: {str(e_list)[:50]}[/]"),
-                [], uri, actual_db_name,
+                    f"[#BF616A]Connected, but failed to list collections/stats for {actual_db_name}: {str(e_list)[:50]}[/]"
+                ),
+                [],
+                uri,
+                actual_db_name,
             )
 
         status_message = Text.from_markup(
-            f"[#A3BE8C]Connected to {redact_uri_password(uri)} (DB: {actual_db_name})[/]")
+            f"[#A3BE8C]Connected to {redact_uri_password(uri)} (DB: {actual_db_name})[/]"
+        )
         return True, status_message, collections_with_stats, uri, actual_db_name
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -192,28 +212,30 @@ class DBConnectionView(Container):
             try:
                 # Use functools.partial to pre-bind arguments to the task
                 task_with_args = functools.partial(
-                    self._connect_and_list_collections_task,
-                    uri_input,
-                    db_name_input
+                    self._connect_and_list_collections_task, uri_input, db_name_input
                 )
 
                 worker: Worker[
-                    Tuple[bool, Text, List[Dict[str, Any]], Optional[str], Optional[str]]] = \
-                    self.app.run_worker(
-                        task_with_args,  # Pass the partial function
-                        thread=True,
-                        name=f"connect_worker_{db_name_input or 'default'}",
-                        # Optional: explicit name for worker
-                        group="db_operations"  # Optional: explicit group for worker
-                    )
+                    Tuple[bool, Text, List[Dict[str, Any]], Optional[str], Optional[str]]
+                ] = self.app.run_worker(
+                    task_with_args,  # Pass the partial function
+                    thread=True,
+                    name=f"connect_worker_{db_name_input or 'default'}",
+                    # Optional: explicit name for worker
+                    group="db_operations",  # Optional: explicit group for worker
+                )
                 (
-                    task_success, status_msg_text, collections_stats_data,
-                    connected_uri, connected_db_name_actual
+                    task_success,
+                    status_msg_text,
+                    collections_stats_data,
+                    connected_uri,
+                    connected_db_name_actual,
                 ) = await worker.wait()
 
                 if worker.is_cancelled:
                     self.connection_status = Text.from_markup(
-                        "[#D08770]Connection attempt cancelled.[/]")
+                        "[#D08770]Connection attempt cancelled.[/]"
+                    )
                     return
 
                 self.connection_status = status_msg_text
@@ -221,15 +243,17 @@ class DBConnectionView(Container):
                 if task_success and connected_uri and connected_db_name_actual:
                     self.app.current_mongo_uri = connected_uri
                     self.app.current_db_name = connected_db_name_actual
-                    self.app.available_collections = [item['name'] for item in
-                                                      collections_stats_data]
+                    self.app.available_collections = [
+                        item["name"] for item in collections_stats_data
+                    ]
 
                     if collections_stats_data:
                         collections_title.visible = True
                         collections_table.visible = True
                         for coll_data in collections_stats_data:
                             collections_table.add_row(
-                                coll_data["name"], str(coll_data.get("count", "N/A")),
+                                coll_data["name"],
+                                str(coll_data.get("count", "N/A")),
                                 _format_bytes_tui(coll_data.get("avgObjSize")),
                                 _format_bytes_tui(coll_data.get("size")),
                                 _format_bytes_tui(coll_data.get("storageSize")),
@@ -239,8 +263,9 @@ class DBConnectionView(Container):
                     else:
                         collections_title.visible = True
                         collections_table.visible = True
-                        collections_table.add_row("No collections found or stats unavailable.", "",
-                                                  "", "", "", "")
+                        collections_table.add_row(
+                            "No collections found or stats unavailable.", "", "", "", "", ""
+                        )
 
                 elif connected_uri and connected_db_name_actual:
                     self.app.current_mongo_uri = connected_uri
@@ -249,14 +274,24 @@ class DBConnectionView(Container):
                     collections_table.visible = True
                     collections_table.add_row(
                         status_msg_text.plain if status_msg_text else "Error listing collections.",
-                        "", "", "", "", "")
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    )
 
                 else:
                     collections_title.visible = True
                     collections_table.visible = True
                     collections_table.add_row(
-                        status_msg_text.plain if status_msg_text else "Connection failed.", "", "",
-                        "", "", "")
+                        status_msg_text.plain if status_msg_text else "Connection failed.",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    )
 
             except WorkerCancelled:
                 self.connection_status = Text.from_markup("[#D08770]Connection task cancelled.[/]")
@@ -270,24 +305,15 @@ class DBConnectionView(Container):
 
     @on(DataTable.RowSelected, "#collections_data_table")
     async def on_collection_selected_in_table(self, event: DataTable.RowSelected) -> None:
-        if event.control.id == "collections_data_table":
-            if event.row_key and event.row_key.value:
-                selected_collection_name = str(event.row_key.value)
-                self.app.active_collection = selected_collection_name
-                logger.info(
-                    f"DBConnectionView: Collection '{selected_collection_name}' set as active by table selection.")
-                self.app.notify(f"Collection '{selected_collection_name}' set as active.")
-                await self._load_indexes_for_collection(selected_collection_name)
-            else:
-                logger.warning("DBConnectionView: RowSelected event with no row_key value.")
-                try:
-                    self.query_one("#indexes_data_table", DataTable).clear()
-                    self.query_one("#indexes_title_label", Label).visible = False
-                    self.query_one("#indexes_data_table", DataTable).visible = False
-                    self.app.active_collection = None
-                except NoMatches:
-                    logger.error(
-                        "DBConnectionView: Could not find index table/label to clear on invalid collection selection.")
+        if event.control.id != "collections_data_table":
+            return
+        if not event.row_key or not event.row_key.value:
+            return
+        selected = str(event.row_key.value)
+        if selected == self.app.active_collection:
+            return
+        self.app.active_collection = selected
+        await self._load_indexes_for_collection(selected)
 
     async def _load_indexes_for_collection(self, collection_name: str) -> None:
         uri = self.app.current_mongo_uri
@@ -308,17 +334,21 @@ class DBConnectionView(Container):
         indexes_table.add_row("Loading indexes...", "", "", "", "", "")
 
         try:
-            if not core_db_manager.db_connection_active(uri=uri, db_name=db_name_app,
-                                                        force_reconnect=False):
+            if not core_db_manager.db_connection_active(
+                uri=uri, db_name=db_name_app, force_reconnect=False
+            ):
                 raise ConnectionError(
-                    f"Failed to re-verify connection to {db_name_app} for listing indexes.")
+                    f"Failed to re-verify connection to {db_name_app} for listing indexes."
+                )
 
             db_instance = core_db_manager.get_mongo_db()
             if db_instance.name != db_name_app:
                 logger.error(
-                    f"Mismatch: Expected DB '{db_name_app}', but got '{db_instance.name}' for indexes.")
+                    f"Mismatch: Expected DB '{db_name_app}', but got '{db_instance.name}' for indexes."
+                )
                 raise ConnectionError(
-                    f"DB context mismatch for index listing. Expected {db_name_app}.")
+                    f"DB context mismatch for index listing. Expected {db_name_app}."
+                )
 
             collection_obj = db_instance[collection_name]
 
@@ -329,7 +359,7 @@ class DBConnectionView(Container):
                 task_with_args,
                 thread=True,
                 name=f"list_indexes_{collection_name}",  # Optional: explicit name
-                group="db_operations"  # Optional: explicit group
+                group="db_operations",  # Optional: explicit group
             )
             raw_indexes = await worker.wait()
             indexes_table.clear()
@@ -339,8 +369,9 @@ class DBConnectionView(Container):
                 return
 
             if not raw_indexes:
-                indexes_table.add_row("No indexes found for this collection (excluding _id).", "",
-                                      "", "", "", "")
+                indexes_table.add_row(
+                    "No indexes found for this collection (excluding _id).", "", "", "", "", ""
+                )
                 return
 
             for idx_info in raw_indexes:
@@ -359,7 +390,7 @@ class DBConnectionView(Container):
                     str(idx_info.get("unique", False)),
                     str(idx_info.get("sparse", False)),
                     str(idx_info.get("background", False)),
-                    other_props_str
+                    other_props_str,
                 )
         except WorkerCancelled:
             indexes_table.clear()
@@ -368,4 +399,3 @@ class DBConnectionView(Container):
             logger.error(f"Error loading indexes for '{collection_name}': {e}", exc_info=True)
             indexes_table.clear()
             indexes_table.add_row(f"Error: {str(e)[:70]}", "", "", "", "", "")
-

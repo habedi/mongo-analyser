@@ -29,16 +29,19 @@ def db_connection_active(
             try:
                 _client.admin.command("ping")
                 logger.debug(
-                    f"Already connected to MongoDB (URI: {_current_uri}, DB: {_db.name}). Ping successful.")
+                    f"Already connected to MongoDB (URI: {_current_uri}, DB: {_db.name}). Ping successful."
+                )
                 return True
             except (ConnectionFailure, OperationFailure) as e:
                 logger.warning(
-                    f"Existing MongoDB connection ping failed: {e}. Attempting to re-establish.")
+                    f"Existing MongoDB connection ping failed: {e}. Attempting to re-establish."
+                )
                 _client = None
                 _db = None
         elif db_name and _db.name != db_name:
             logger.info(
-                f"Switching DB context on existing client from '{_db.name}' to '{db_name}'.")
+                f"Switching DB context on existing client from '{_db.name}' to '{db_name}'."
+            )
             try:
                 _db = _client[db_name]
                 _current_db_name_arg = db_name
@@ -56,10 +59,7 @@ def db_connection_active(
 
     try:
         logger.info(f"Attempting to connect to MongoDB: {uri}, target DB specified: {db_name}")
-        client_options = {
-            "serverSelectionTimeoutMS": server_timeout_ms,
-            **kwargs
-        }
+        client_options = {"serverSelectionTimeoutMS": server_timeout_ms, **kwargs}
         temp_client = MongoClient(uri, **client_options)
 
         db_to_use_name: Optional[str] = None
@@ -73,13 +73,15 @@ def db_connection_active(
             db_to_use_name = path_part
         else:
             logger.error(
-                f"No database name specified in URI ('{uri}') or as an argument. Cannot determine database context.")
+                f"No database name specified in URI ('{uri}') or as an argument. Cannot determine database context."
+            )
             temp_client.close()
             return False
 
         if not db_to_use_name:
             logger.error(
-                f"Critical: Database name could not be resolved for URI '{uri}' and db_name arg '{db_name}'.")
+                f"Critical: Database name could not be resolved for URI '{uri}' and db_name arg '{db_name}'."
+            )
             temp_client.close()
             return False
 
@@ -144,4 +146,3 @@ def disconnect_mongo() -> None:
 
 def disconnect_all_mongo() -> None:
     disconnect_mongo()
-

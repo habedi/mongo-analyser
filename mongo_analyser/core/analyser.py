@@ -5,7 +5,7 @@ import uuid
 from collections import Counter, OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from bson import Binary, Decimal128, Int64, ObjectId
 from pymongo.errors import (
@@ -35,8 +35,8 @@ class SchemaAnalyser:
     @staticmethod
     def extract_schema_and_stats(
         document: Dict,
-        schema: Union[Dict, OrderedDict, None] = None,
-        stats: Union[Dict, OrderedDict, None] = None,
+        schema: Optional[Union[Dict, OrderedDict]] = None,
+        stats: Optional[Union[Dict, OrderedDict]] = None,
         prefix: str = "",
     ) -> Tuple[Union[Dict, OrderedDict], Union[Dict, OrderedDict]]:
         if schema is None:
@@ -47,6 +47,7 @@ class SchemaAnalyser:
         for key, value in document.items():
             full_key = f"{prefix}.{key}" if prefix else key
 
+            # **FIX**: ensure array_element_stats has its own 'values' set
             if full_key not in stats:
                 stats[full_key] = {
                     "values": set(),
@@ -57,7 +58,8 @@ class SchemaAnalyser:
                     "date_min": None,
                     "date_max": None,
                     "value_frequencies": Counter(),
-                    "array_element_stats": {  # For stats of elements within arrays
+                    "array_element_stats": {
+                        "values": set(),  # ← added
                         "type_counts": Counter(),
                         "numeric_min": float("inf"),
                         "numeric_max": float("-inf"),
@@ -77,6 +79,7 @@ class SchemaAnalyser:
                 SchemaAnalyser.handle_simple_value(
                     value, schema, stats, full_key, is_array_element=False
                 )
+
         return schema, stats
 
     @staticmethod
@@ -92,7 +95,6 @@ class SchemaAnalyser:
             schema[full_key] = {"type": "array<empty>"}
         else:
             element_types_for_schema = Counter()
-            # Sample elements for schema type diversity, e.g., first 10 or a random sample
             sample_elements_for_schema = value[:10]
 
             for elem in sample_elements_for_schema:
@@ -130,7 +132,6 @@ class SchemaAnalyser:
             else:
                 schema[full_key] = {"type": "array<unknown>"}
 
-            # Process all elements for detailed statistics
             for elem in value:
                 SchemaAnalyser.handle_simple_value(
                     elem,
@@ -154,10 +155,6 @@ class SchemaAnalyser:
         full_key: str,
         is_array_element: bool,
     ) -> None:
-        # If it's not an array element, schema is updated for the field itself.
-        # If it is an array element, schema is not updated here (array type is determined in handle_array).
-        # Stats are always updated in stats_dict_to_update.
-
         value_type_name = ""
         if isinstance(value, ObjectId):
             value_type_name = "binary<ObjectId>"
@@ -184,7 +181,6 @@ class SchemaAnalyser:
 
         if not is_array_element:
             schema[full_key] = {"type": value_type_name}
-            # For non-array elements, 'values' set is for the field itself
             try:
                 stats_dict_to_update["values"].add(SchemaAnalyser._make_hashable(value))
             except TypeError:
@@ -201,15 +197,14 @@ class SchemaAnalyser:
                 stats_dict_to_update.get("numeric_max", float("-inf")), num_val
             )
         elif isinstance(value, str):
-            if len(value) < 256:  # Avoid very long strings in frequency counts
+            if len(value) < 256:
                 stats_dict_to_update["value_frequencies"].update([value])
         elif isinstance(value, datetime):
-            # Naive comparison, assumes datetimes are comparable or already UTC
-            current_min_date = stats_dict_to_update.get("date_min")
-            current_max_date = stats_dict_to_update.get("date_max")
-            if current_min_date is None or value < current_min_date:
+            current_min = stats_dict_to_update.get("date_min")
+            current_max = stats_dict_to_update.get("date_max")
+            if current_min is None or value < current_min:
                 stats_dict_to_update["date_min"] = value
-            if current_max_date is None or value > current_max_date:
+            if current_max is None or value > current_max:
                 stats_dict_to_update["date_max"] = value
 
     @staticmethod
@@ -236,8 +231,7 @@ class SchemaAnalyser:
 
         database = db_manager.get_mongo_db()
         try:
-            names = sorted(database.list_collection_names())
-            return names
+            return sorted(database.list_collection_names())
         except PyMongoOperationFailure as e:
             logger.error(f"MongoDB operation failure listing collections for DB '{db_name}': {e}")
             raise
@@ -246,189 +240,134 @@ class SchemaAnalyser:
     def infer_schema_and_field_stats(
         collection: PyMongoCollection, sample_size: int, batch_size: int = 1000
     ) -> Tuple[Dict, Dict]:
-        schema = OrderedDict()
-        stats = OrderedDict()
+        from collections import Counter, OrderedDict
+
+        schema: OrderedDict = OrderedDict()
+        stats: OrderedDict = OrderedDict()
         total_docs = 0
 
+        # 1) Fetch documents (all or a random sample)
         try:
-            if sample_size < 0:  # All documents
-                # For very large collections, consider adding a warning or a practical limit
-                # as find() without limit can be resource-intensive.
-                # total_docs_in_coll = collection.estimated_document_count() # or count_documents({})
-                # if total_docs_in_coll > 1_000_000: # Example threshold
-                #    logger.warning(f"Analysing all documents in a large collection ({total_docs_in_coll} docs). This might take a long time.")
-                documents = collection.find().batch_size(batch_size)
+            if sample_size < 0:
+                docs = collection.find().batch_size(batch_size)
             else:
-                documents = collection.aggregate([{"$sample": {"size": sample_size}}]).batch_size(
+                docs = collection.aggregate([{"$sample": {"size": sample_size}}]).batch_size(
                     batch_size
                 )
-
-            for doc in documents:
+            for doc in docs:
                 total_docs += 1
                 schema, stats = SchemaAnalyser.extract_schema_and_stats(doc, schema, stats)
-                if (
-                    sample_size > 0 and total_docs >= sample_size
-                ):  # Ensure we don't exceed sample_size if specified
+                if sample_size > 0 and total_docs >= sample_size:
                     break
         except PyMongoOperationFailure as e:
             logger.error(
-                f"Error during schema inference on {collection.database.name}.{collection.name}: {e}"
+                f"Error during schema inference on {collection.database.name}"
+                f".{collection.name}: {e}"
             )
             raise
 
-        final_stats_summary = OrderedDict()
+        # 2) Build a safe, display‐ready summary
+        final_stats_summary: OrderedDict = OrderedDict()
         for key, field_stat_data in stats.items():
-            cardinality = len(field_stat_data["values"])  # Cardinality of the field itself
-            missing_count = total_docs - field_stat_data["count"]
-            missing_percentage = (missing_count / total_docs) * 100 if total_docs > 0 else 0
+            # pull every sub‐dict with a safe default
+            values_set = field_stat_data.get("values", set())
+            count = field_stat_data.get("count", 0)
+            type_counts = field_stat_data.get("type_counts", Counter())
+            val_freqs = field_stat_data.get("value_frequencies", Counter())
+            arr_stats = field_stat_data.get("array_element_stats", {})
+            arr_type_counts = arr_stats.get("type_counts", Counter())
+            arr_val_freqs = arr_stats.get("value_frequencies", Counter())
 
-            processed_stat: Dict[str, Any] = {
+            # compute cardinality & missing%
+            cardinality = len(values_set)
+            missing_count = total_docs - count
+            missing_pct = (missing_count / total_docs * 100) if total_docs else 0
+
+            processed: Dict[str, Any] = {
                 "cardinality": cardinality,
-                "missing_percentage": missing_percentage,
-                "type_distribution": dict(field_stat_data["type_counts"].most_common(5)),
-                # Types of the field itself
+                "missing_percentage": missing_pct,
+                "type_distribution": dict(type_counts.most_common(5)),
             }
-            if field_stat_data["numeric_min"] != float("inf"):
-                processed_stat["numeric_min"] = field_stat_data["numeric_min"]
-                processed_stat["numeric_max"] = field_stat_data["numeric_max"]
 
-            if field_stat_data["date_min"] is not None:
-                processed_stat["date_min"] = field_stat_data["date_min"].isoformat()
-                processed_stat["date_max"] = field_stat_data["date_max"].isoformat()
+            # numeric range
+            num_min = field_stat_data.get("numeric_min", float("inf"))
+            if num_min != float("inf"):
+                processed["numeric_min"] = num_min
+                processed["numeric_max"] = field_stat_data.get("numeric_max", num_min)
 
-            if field_stat_data["value_frequencies"]:
-                processed_stat["top_values"] = dict(
-                    field_stat_data["value_frequencies"].most_common(5)
-                )
+            # date range
+            dmin = field_stat_data.get("date_min")
+            if dmin is not None:
+                processed["date_min"] = dmin.isoformat()
+                processed["date_max"] = field_stat_data.get("date_max", dmin).isoformat()
 
-            # Add array element stats if present
-            array_el_stats = field_stat_data.get("array_element_stats", {})
-            if array_el_stats.get("type_counts"):  # Check if any array elements were processed
-                processed_stat["array_elements"] = {
-                    "type_distribution": dict(array_el_stats["type_counts"].most_common(5))
+            # top values
+            if val_freqs:
+                processed["top_values"] = dict(val_freqs.most_common(5))
+
+            # array‐element stats
+            if arr_type_counts:
+                arr_processed: Dict[str, Any] = {
+                    "type_distribution": dict(arr_type_counts.most_common(5))
                 }
-                if array_el_stats["numeric_min"] != float("inf"):
-                    processed_stat["array_elements"]["numeric_min"] = array_el_stats["numeric_min"]
-                    processed_stat["array_elements"]["numeric_max"] = array_el_stats["numeric_max"]
-                if array_el_stats["date_min"] is not None:
-                    processed_stat["array_elements"]["date_min"] = array_el_stats[
-                        "date_min"
-                    ].isoformat()
-                    processed_stat["array_elements"]["date_max"] = array_el_stats[
-                        "date_max"
-                    ].isoformat()
-                if array_el_stats["value_frequencies"]:
-                    processed_stat["array_elements"]["top_values"] = dict(
-                        array_el_stats["value_frequencies"].most_common(5)
-                    )
+                arr_num_min = arr_stats.get("numeric_min", float("inf"))
+                if arr_num_min != float("inf"):
+                    arr_processed["numeric_min"] = arr_num_min
+                    arr_processed["numeric_max"] = arr_stats.get("numeric_max", arr_num_min)
+                arr_dmin = arr_stats.get("date_min")
+                if arr_dmin is not None:
+                    arr_processed["date_min"] = arr_dmin.isoformat()
+                    arr_processed["date_max"] = arr_stats.get("date_max", arr_dmin).isoformat()
+                if arr_val_freqs:
+                    arr_processed["top_values"] = dict(arr_val_freqs.most_common(5))
 
-            final_stats_summary[key] = processed_stat
+                processed["array_elements"] = arr_processed
 
+            final_stats_summary[key] = processed
+
+        # 3) Sort for stable output and return
         sorted_schema = OrderedDict(sorted(schema.items()))
-        sorted_stats_summary = OrderedDict(sorted(final_stats_summary.items()))
-        return dict(sorted_schema), dict(sorted_stats_summary)
-
-    @staticmethod
-    def get_collection_general_statistics(collection: PyMongoCollection) -> Dict:
-        try:
-            stats_cmd_result = collection.database.command("collStats", collection.name)
-            general_stats = {
-                "ns": stats_cmd_result.get("ns"),
-                "document_count": stats_cmd_result.get("count"),
-                "avg_obj_size_bytes": stats_cmd_result.get("avgObjSize"),
-                "total_size_bytes": stats_cmd_result.get("size"),
-                "storage_size_bytes": stats_cmd_result.get("storageSize"),
-                "nindexes": stats_cmd_result.get("nindexes"),
-                "total_index_size_bytes": stats_cmd_result.get("totalIndexSize"),
-                "capped": stats_cmd_result.get("capped", False),
-            }
-            return general_stats
-        except PyMongoOperationFailure as e:
-            logger.error(
-                f"Error getting collStats for {collection.database.name}.{collection.name}: {e}"
-            )
-            return {"error": str(e)}
-
-    @staticmethod
-    def draw_unicode_table(headers: List[str], rows: List[List[Any]]) -> None:
-        if not rows:
-            print("No data to display in table.")
-            return
-
-        # Calculate column widths safely, handling potential None or non-string items
-        str_rows = [[str(item) for item in r] for r in rows]
-        str_headers = [str(h) for h in headers]
-
-        col_widths = [
-            max(len(item) for item in col) for col in zip(*([str_headers] + str_rows), strict=False)
-        ]
-
-        def draw_separator(sep_type: str) -> None:
-            parts = {
-                "top": ("┌", "┬", "┐"),
-                "mid": ("├", "┼", "┤"),
-                "bottom": ("└", "┴", "┘"),
-                "line": "─",
-            }
-            start, sep, end = parts[sep_type]
-            separator = start + sep.join([parts["line"] * (w + 2) for w in col_widths]) + end
-            print(separator)
-
-        def draw_row(items: List[Any], is_header: bool = False) -> None:
-            # Ensure items are strings for formatting
-            str_items = [str(item) for item in items]
-            row_str = (
-                "│ "
-                + " │ ".join(f"{item:<{w}}" for item, w in zip(str_items, col_widths, strict=False))
-                + " │"
-            )
-            print(row_str)
-
-        draw_separator("top")
-        draw_row(headers, is_header=True)
-        draw_separator("mid")
-        for r in rows:
-            draw_row(r)
-        draw_separator("bottom")
+        sorted_stats = OrderedDict(sorted(final_stats_summary.items()))
+        return dict(sorted_schema), dict(sorted_stats)
 
     @staticmethod
     def schema_to_hierarchical(schema: Dict) -> Dict:
-        hierarchical_schema: Dict = {}
+        hierarchical: Dict = {}
         for field, details in schema.items():
             parts = field.split(".")
-            current_level = hierarchical_schema
-            for part in parts[:-1]:
-                current_level = current_level.setdefault(part, {})
-            current_level[parts[-1]] = {"type": details["type"]}
-        return hierarchical_schema
+            cur = hierarchical
+            for p in parts[:-1]:
+                cur = cur.setdefault(p, {})
+            cur[parts[-1]] = {"type": details.get("type")}
+        return hierarchical
 
     @staticmethod
     def save_schema_to_json(schema: Dict, schema_file: Union[str, Path]) -> None:
-        hierarchical_schema = SchemaAnalyser.schema_to_hierarchical(schema)
-        output_path = Path(schema_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        hierarchical = SchemaAnalyser.schema_to_hierarchical(schema)
+        out_path = Path(schema_file)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with output_path.open("w", encoding="utf-8") as f:
-                json.dump(hierarchical_schema, f, indent=4)
-            logger.info(f"Schema has been saved to {output_path}")
-            print(f"Schema has been saved to {output_path}")
+            with out_path.open("w", encoding="utf-8") as f:
+                json.dump(hierarchical, f, indent=4)
+            logger.info(f"Schema has been saved to {out_path}")
+            print(f"Schema has been saved to {out_path}")
         except IOError as e:
-            logger.error(f"Failed to save schema to {output_path}: {e}")
-            print(f"Error: Could not save schema to {output_path}.")
+            logger.error(f"Failed to save schema to {out_path}: {e}")
+            print(f"Error: Could not save schema to {out_path}.")
 
     @staticmethod
     def save_table_to_csv(
         headers: List[str], rows: List[List[Any]], csv_file: Union[str, Path]
     ) -> None:
-        output_path = Path(csv_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path = Path(csv_file)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with output_path.open(mode="w", newline="", encoding="utf-8") as file:
+            with out_path.open(mode="w", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
                 writer.writerow(headers)
                 writer.writerows(rows)
-            logger.info(f"Table has been saved to {output_path}")
-            print(f"Table has been saved to {output_path}")
+            logger.info(f"Table has been saved to {out_path}")
+            print(f"Table has been saved to {out_path}")
         except IOError as e:
-            logger.error(f"Failed to save CSV to {output_path}: {e}")
-            print(f"Error: Could not save table to {output_path}.")
+            logger.error(f"Failed to save CSV to {out_path}: {e}")
+            print(f"Error: Could not save table to {out_path}.")
