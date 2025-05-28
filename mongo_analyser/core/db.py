@@ -15,7 +15,7 @@ _current_db_name_arg: Optional[str] = None
 
 def db_connection_active(
     uri: str,
-    db_name: Optional[str] = None,  # db_name can be part of URI or specified
+    db_name: Optional[str] = None,
     server_timeout_ms: int = 5000,
     force_reconnect: bool = False,
     **kwargs,

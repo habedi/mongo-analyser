@@ -10,7 +10,7 @@ authors = [
 maintainers = [
     { name = "Hassan Abedi", email = "hassan.abedi.t@gmail.com" }
 ]
-keywords = ["mongodb", "python", "nosql", "command-line tool", "json", "artificial intelligence"]
+keywords = ["mongodb", "nosql", "json", "artificial intelligence"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

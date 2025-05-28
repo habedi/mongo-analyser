@@ -9,6 +9,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
+from textual.widget import Widget
 from textual.widgets import Button, Input, Static
 from textual.worker import Worker, WorkerCancelled, WorkerFailed, WorkerState
 
@@ -28,6 +29,25 @@ class ChatView(Container):
     ROLE_USER = "user"
     ROLE_AI = "assistant"
     ROLE_SYSTEM = "system"
+
+    def __init__(
+        self,
+        *children: Widget,
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+        classes: Optional[str] = None,
+        disabled: bool = False,
+        markup: bool = True,
+    ):
+        super().__init__(
+            *children,
+            name=name,
+            id=id,
+            classes=classes,
+            disabled=disabled,
+            markup=markup,
+        )
+        self.chat_history: List[Dict[str, str]] = []
 
     def on_mount(self) -> None:
         logger.info("ChatView: on_mount CALLED.")
@@ -339,7 +359,7 @@ class ChatView(Container):
             self.app.notify("No active DB connection or collection.", severity="warning")
             return None
 
-        cached = getattr(self.app, "current_schema_analysis_results", {})
+        cached = getattr(self.app, "current_schema_analysis_results", {}) or {}
         if cached.get("collection_name") == coll and "hierarchical_schema" in cached:
             schema = cached["hierarchical_schema"]
         else:
