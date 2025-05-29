@@ -12,18 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 class LLMConfigPanel(VerticalScroll):
-    DEFAULT_CSS = """
-    LLMConfigPanel {
-        border: round $primary-darken-1;
-        background: $primary-background-darken-3;
-        padding: 0 1;
-        overflow-y: auto;
-    }
-    LLMConfigPanel > Label { margin-top: 1; }
-    LLMConfigPanel > Input, LLMConfigPanel > Select { width: 100%; }
-    LLMConfigPanel > Button { width: 100%; margin-top: 1; }
-    """
-
     class ProviderChanged(Message):
         def __init__(self, provider: Optional[str]):
             self.provider = provider

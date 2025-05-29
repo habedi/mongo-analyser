@@ -5,20 +5,6 @@ from textual.widgets import Markdown, Static
 
 
 class ChatMessageWidget(Vertical):
-    DEFAULT_CSS = """
-    ChatMessageWidget {
-        width: 100%;
-        height: auto;
-        padding: 1;
-        margin-bottom: 1;
-        border: round $primary-background-darken-2;
-    }
-    ChatMessageWidget .role_user { color: $success; }
-    ChatMessageWidget .role_assistant { color: $secondary; }
-    ChatMessageWidget .role_system { color: $warning; }
-    ChatMessageWidget > Markdown { background: transparent; margin-top: 0; }
-    """
-
     def __init__(self, role: str, content: str, **kwargs):
         super().__init__(**kwargs)
         self.role = role
