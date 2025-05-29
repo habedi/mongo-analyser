@@ -3,6 +3,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -116,75 +117,157 @@ class DBConnectionView(Container):
         self, uri: str, db_name_from_input: Optional[str]
     ) -> Tuple[bool, Text, List[Dict[str, Any]], Optional[str], Optional[str]]:
         collections_with_stats: List[Dict[str, Any]] = []
+        final_status_message: Text
 
-        is_active = core_db_manager.db_connection_active(
-            uri=uri,
-            db_name=db_name_from_input,
-            server_timeout_ms=3000,
-            force_reconnect=True,
-        )
+        connection_is_meaningful_for_analyser = False
 
-        if not is_active:
-            return (
-                False,
-                Text.from_markup(f"[#BF616A]Connection Failed to {redact_uri_password(uri)}[/]"),
-                [],
-                None,
-                None,
+        if not core_db_manager.db_connection_active(
+            uri=uri, db_name=db_name_from_input, server_timeout_ms=3000, force_reconnect=True
+        ):
+            final_status_message = Text.from_markup(
+                f"[#BF616A]Connection Failed: Could not connect to MongoDB server at {redact_uri_password(uri)}[/]"
+            )
+            return False, final_status_message, [], None, None
+
+        client = core_db_manager.get_mongo_client()
+        db_instance = core_db_manager.get_mongo_db()
+
+        if client is None or db_instance is None:
+            final_status_message = Text.from_markup(
+                "[#BF616A]Internal Error: Could not retrieve active MongoDB client/db after connection.[/]"
             )
 
-        db_instance = core_db_manager.get_mongo_db()
+            return (
+                False,
+                final_status_message,
+                [],
+                core_db_manager.get_current_uri(),
+                core_db_manager.get_current_resolved_db_name(),
+            )
+
         actual_db_name = db_instance.name
-        collection_names_list: List[str] = []
+        connected_uri = core_db_manager.get_current_uri()
 
         try:
-            fetched_names = sorted(db_instance.list_collection_names())
-            for name in fetched_names:
-                collection_names_list.append(name)
-                try:
-                    coll_stats = db_instance.command("collStats", name)
-                    collections_with_stats.append(
-                        {
-                            "name": name,
-                            "count": coll_stats.get("count", "N/A"),
-                            "avgObjSize": coll_stats.get("avgObjSize", "N/A"),
-                            "size": coll_stats.get("size", "N/A"),
-                            "storageSize": coll_stats.get("storageSize", "N/A"),
-                            "nindexes": coll_stats.get("nindexes", "N/A"),
-                        }
-                    )
-                except Exception as e_stats:
-                    logger.warning(f"Could not get stats for collection {name}: {e_stats}")
-                    collections_with_stats.append(
-                        {
-                            "name": name,
-                            "count": "N/A",
-                            "avgObjSize": "N/A",
-                            "size": "N/A",
-                            "storageSize": "N/A",
-                            "nindexes": "N/A",
-                        }
-                    )
+            collection_names_list = sorted(db_instance.list_collection_names())
 
-        except Exception as e_list:
+            if collection_names_list:
+                connection_is_meaningful_for_analyser = True
+                for name in collection_names_list:
+                    try:
+                        coll_stats = db_instance.command("collStats", name)
+                        collections_with_stats.append(
+                            {
+                                "name": name,
+                                "count": coll_stats.get("count", "N/A"),
+                                "avgObjSize": _format_bytes_tui(coll_stats.get("avgObjSize")),
+                                "size": _format_bytes_tui(coll_stats.get("size")),
+                                "storageSize": _format_bytes_tui(coll_stats.get("storageSize")),
+                                "nindexes": str(coll_stats.get("nindexes", "N/A")),
+                            }
+                        )
+                    except Exception as e_stats:
+                        logger.warning(f"Could not get stats for collection {name}: {e_stats}")
+                        collections_with_stats.append(
+                            {
+                                "name": name,
+                                "count": "N/A",
+                                "avgObjSize": "N/A",
+                                "size": "N/A",
+                                "storageSize": "N/A",
+                                "nindexes": "N/A",
+                            }
+                        )
+                final_status_message = Text.from_markup(
+                    f"[#A3BE8C]Connected to {redact_uri_password(connected_uri)} (DB: {actual_db_name})."
+                    f" {len(collection_names_list)} collection(s) found.[/]"
+                )
+            else:
+                db_is_explicitly_listed = False
+                try:
+                    server_db_names = client.list_database_names()
+                    if actual_db_name in server_db_names:
+                        db_is_explicitly_listed = True
+
+                    if db_is_explicitly_listed:
+                        final_status_message = Text.from_markup(
+                            f"[#EBCB8B]Connected to DB: '{actual_db_name}'."
+                            f" This database exists but is currently empty (no collections).[/]"
+                        )
+                        connection_is_meaningful_for_analyser = True
+                    else:
+                        final_status_message = Text.from_markup(
+                            f"[#D08770]Connected to MongoDB server successfully. "
+                            f"However, the database '{actual_db_name}' does not appear to exist or is empty.[/]"
+                        )
+                        connection_is_meaningful_for_analyser = True
+
+                except PyMongoOperationFailure as e_list_dbs:
+                    if (
+                        "not authorized" in str(e_list_dbs).lower()
+                        or getattr(e_list_dbs, "code", None) == 13
+                    ):
+                        logger.warning(f"User not authorized to list databases: {e_list_dbs}")
+                        final_status_message = Text.from_markup(
+                            f"[#D08770]Connected to server (DB: {actual_db_name}). No collections found."
+                            f" Unable to verify database existence due to insufficient permissions (cannot execute listDatabases).[/]"
+                        )
+                    else:
+                        logger.error(f"Error listing database names: {e_list_dbs}")
+                        final_status_message = Text.from_markup(
+                            f"[#D08770]Connected to server (DB: {actual_db_name}). No collections found."
+                            f" An error occurred while trying to verify database existence.[/]"
+                        )
+                    connection_is_meaningful_for_analyser = True
+                except Exception as e_list_dbs_unexpected:
+                    logger.error(
+                        f"Unexpected error listing database names: {e_list_dbs_unexpected}",
+                        exc_info=True,
+                    )
+                    final_status_message = Text.from_markup(
+                        f"[#D08770]Connected to server (DB: {actual_db_name}). No collections found."
+                        f" An unexpected error occurred while verifying database existence.[/]"
+                    )
+                    connection_is_meaningful_for_analyser = True
+
+        except PyMongoOperationFailure as e_list_coll:
+            if (
+                "not authorized" in str(e_list_coll).lower()
+                or getattr(e_list_coll, "code", None) == 13
+            ):
+                logger.error(
+                    f"User not authorized to list collections for DB '{actual_db_name}': {e_list_coll}"
+                )
+                final_status_message = Text.from_markup(
+                    f"[#BF616A]Connected to server. However, you are not authorized to"
+                    f" list collections in database '{actual_db_name}'. Please check your MongoDB user permissions.[/]"
+                )
+            else:
+                logger.error(
+                    f"MongoDB operation failure listing collections for DB '{actual_db_name}': {e_list_coll}"
+                )
+                final_status_message = Text.from_markup(
+                    f"[#BF616A]Connected to server (DB: {actual_db_name}), but an error occurred while listing collections: {str(e_list_coll)[:70]}[/]"
+                )
+            connection_is_meaningful_for_analyser = False
+
+        except Exception as e_generic_list_coll:
             logger.error(
-                f"Failed to list collections or their stats for DB '{actual_db_name}': {e_list}",
+                f"Unexpected error listing collections for DB '{actual_db_name}': {e_generic_list_coll}",
                 exc_info=True,
             )
-            return (
-                False,
-                Text.from_markup(
-                    f"[#BF616A]Connected, but failed to list collections/stats for {actual_db_name}: {str(e_list)[:50]}[/]"
-                ),
-                [],
-                uri,
-                actual_db_name,
+            final_status_message = Text.from_markup(
+                f"[#BF616A]Connected to server (DB: {actual_db_name}), but an unexpected error occurred while listing collections.[/]"
             )
+            connection_is_meaningful_for_analyser = False
 
-        status_message = Text.from_markup(
-            f"[#A3BE8C]Connected to {redact_uri_password(uri)} (DB: {actual_db_name})[/]"
+        return (
+            connection_is_meaningful_for_analyser,
+            final_status_message,
+            collections_with_stats,
+            connected_uri,
+            actual_db_name,
         )
-        return True, status_message, collections_with_stats, uri, actual_db_name
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "connect_mongo_button":
