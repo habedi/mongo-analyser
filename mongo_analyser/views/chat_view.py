@@ -3,6 +3,16 @@ import json
 import logging
 from typing import Dict, List, Optional, Tuple, Type
 
+import mongo_analyser.core.db as core_db_manager
+from mongo_analyser.core.analyser import SchemaAnalyser
+from mongo_analyser.dialogs import ErrorDialog
+from mongo_analyser.llm_chat import (
+    GoogleChat,
+    LLMChat,
+    OllamaChat,
+    OpenAIChat,
+)
+from mongo_analyser.widgets import ChatMessageList, LLMConfigPanel
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -16,17 +26,6 @@ from textual.widgets import (
     Static,
 )
 from textual.worker import Worker, WorkerCancelled, WorkerFailed, WorkerState
-
-import mongo_analyser.core.db as core_db_manager
-from mongo_analyser.core.analyser import SchemaAnalyser
-from mongo_analyser.dialogs import ErrorDialog
-from mongo_analyser.llm_chat import (
-    GoogleChat,
-    LLMChat,
-    OllamaChat,
-    OpenAIChat,
-)
-from mongo_analyser.widgets import ChatMessageList, LLMConfigPanel
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +264,7 @@ class ChatView(Container):
             if listed:
                 default: Optional[str] = None
                 if provider_value == "ollama":
-                    preferred_ollama = ["gemma3:4b", "qwen3:8b"]
+                    preferred_ollama = ["gemma3:1b", "gemma3:4b", "qwen3:8b"]
                     for p_base in preferred_ollama:
                         if p_base in listed:
                             default = p_base
@@ -278,13 +277,14 @@ class ChatView(Container):
                         if default:
                             break
                 elif provider_value == "openai":
-                    preferred_openai = ["gpt-4.1-nano", "gpt-4.1-mini"]
+                    preferred_openai = ["gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini"]
                     for p in preferred_openai:
                         if p in listed:
                             default = p
                             break
                 elif provider_value == "google":
-                    preferred_google = ["gemini-2.0-flash", "gemini-1.5-flash"]
+                    preferred_google = ["models/gemini-2.0-flash-lite", "models/gemini-2.0-flash",
+                                        "models/gemini-1.5-flash"]
                     for p in preferred_google:
                         if p in listed:
                             default = p
@@ -408,7 +408,7 @@ class ChatView(Container):
             max_hist = panel.max_history_messages
             if max_hist == -1:
                 return []
-            if max_hist is not None and max_hist > 0 and len(hist) > max_hist:
+            if max_hist is not None and 0 < max_hist < len(hist):
                 return hist[-max_hist:]
         except NoMatches:
             logger.warning("LLMConfigPanel not found in _get_effective_history_for_llm")

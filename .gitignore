@@ -89,3 +89,4 @@ site/
 .chat_history*.txt
 .mongo_analyser_core_history.txt
 strip_comments.py
+test_clipboard.py

@@ -28,7 +28,7 @@ class LLMConfigPanel(VerticalScroll):
     provider: reactive[Optional[str]] = reactive(None)
     model: reactive[Optional[str]] = reactive(None)
     temperature: reactive[Optional[float]] = reactive(0.7)
-    max_history_messages: reactive[Optional[int]] = reactive(20)
+    max_history_messages: reactive[Optional[int]] = reactive(30)
 
     def compose(self) -> ComposeResult:
         yield Label("Session Config", classes="panel_title")
@@ -59,9 +59,9 @@ class LLMConfigPanel(VerticalScroll):
 
         yield Label("Max History (0=all, -1=none):")
         yield Input(
-            placeholder="20",
+            placeholder="30",
             id="llm_config_max_history",
-            value="20",
+            value="30",
             tooltip="Number of recent conversation turns (user+AI message pairs) to include as context. '0' includes all available history. '-1' includes no history (current message only).",
         )
 
@@ -120,10 +120,10 @@ class LLMConfigPanel(VerticalScroll):
             history_input = self.query_one("#llm_config_max_history", Input)
             self.max_history_messages = int(history_input.value)
         except ValueError:
-            self.max_history_messages = 20
+            self.max_history_messages = 30
         except NoMatches:
             logger.error("LLMConfigPanel: Max history input not found.")
-            self.max_history_messages = 20
+            self.max_history_messages = 30
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "llm_config_new_session_button":
@@ -168,7 +168,7 @@ class LLMConfigPanel(VerticalScroll):
         except NoMatches:
             logger.warning("LLMConfigPanel: Model select not found in set_model_select_loading.")
 
-    def watch_model(self, old_model: Optional[str], new_model: Optional[str]) -> None:
+    def watch_model(self, new_model: Optional[str]) -> None:
         if not self.is_mounted:
             return
         try:

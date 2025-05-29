@@ -4,15 +4,25 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Type, Union
 
+from mongo_analyser.core import db as core_db_manager
+from mongo_analyser.views import ChatView, DataExplorerView, DBConnectionView, SchemaAnalysisView
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.driver import Driver
 from textual.reactive import reactive
-from textual.widgets import ContentSwitcher, Footer, Header, Input, Tab, Tabs
-
-from mongo_analyser.core import db as core_db_manager
-from mongo_analyser.views import ChatView, DataExplorerView, DBConnectionView, SchemaAnalysisView
+from textual.widgets import (
+    ContentSwitcher,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    Static,
+    Tab,
+    Tabs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,21 +30,16 @@ CSSPathType = Union[str, Path, List[Union[str, Path]]]
 
 
 class MongoAnalyserApp(App[None]):
-    """
-    Main TUI application for Mongo Analyser.
-    Toggles based on the 'dark' attribute on Ctrl+T.
-    """
-
     TITLE = "Mongo Analyser TUI"
     CSS_PATH = "app.tcss"
 
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True, priority=True),
         Binding("ctrl+t", "toggle_theme", "Toggle Theme", show=True),
-        Binding("ctrl+c", "app_copy", "Copy Selection", show=False, priority=True),
-        Binding("ctrl+insert", "app_copy", "Copy Selection (Alt)", show=False, priority=True),
-        Binding("ctrl+v", "app_paste", "Paste", show=False, priority=True),
-        Binding("shift+insert", "app_paste", "Paste (Alt)", show=False, priority=True),
+        Binding("ctrl+c", "app_copy", "Copy Text", show=True, key_display="Ctrl+C"),
+        Binding("ctrl+insert", "app_copy", "Copy Text (Alt)", show=False, priority=True),
+        Binding("ctrl+v", "app_paste", "Paste Text", show=True, key_display="Ctrl+V"),
+        Binding("shift+insert", "app_paste", "Paste Text (Alt)", show=False, priority=True),
     ]
 
     current_mongo_uri: reactive[Optional[str]] = reactive(None)
@@ -55,8 +60,6 @@ class MongoAnalyserApp(App[None]):
         self.dark = True
 
     def on_mount(self) -> None:
-        """Apply the initial theme on mount."""
-
         chosen = "dracula" if self.dark else "textual-dark"
         try:
             self.theme = chosen
@@ -114,32 +117,90 @@ class MongoAnalyserApp(App[None]):
             logger.error(f"Could not switch to view '{view_id}'")
 
     async def action_app_copy(self) -> None:
+        """Handles copying text from the focused Input, DataTable cell, Static, or Label."""
         focused = self.focused
-        if isinstance(focused, Input):
-            text = (
-                focused.selected_text if getattr(focused, "selected_text", None) else focused.value
-            )
-            if text:
-                try:
-                    self.copy_to_clipboard(text)
-                    self.notify("Copied to clipboard", title="Copy Success")
-                except Exception as e:
-                    logger.error("Copy failed", exc_info=e)
-                    self.notify("Copy failed", title="Copy Error", severity="error")
-                return
-        self.notify("No text to copy", title="Copy Info", severity="info")
+        text_to_copy: Optional[str] = None
+        source_widget_type = "unknown"
 
-    async def action_app_paste(self) -> None:
-        focused = self.focused
         if isinstance(focused, Input):
-            try:
-                await self.request_paste_from_clipboard()
+            source_widget_type = "Input"
+            text_to_copy = focused.selected_text if focused.selected_text else focused.value
+        elif isinstance(focused, DataTable):
+            source_widget_type = "DataTable cell"
+            if focused.show_cursor and focused.cursor_coordinate:
+                try:
+                    cell_renderable = focused.get_cell_at(focused.cursor_coordinate)
+                    if isinstance(cell_renderable, Text):
+                        text_to_copy = cell_renderable.plain
+                    elif isinstance(cell_renderable, str):
+                        text_to_copy = cell_renderable
+                    else:
+                        text_to_copy = str(cell_renderable)
+                    logger.debug(
+                        f"DataTable copy: cell at {focused.cursor_coordinate} gave '{text_to_copy}'"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error getting DataTable cell content for copy: {e}", exc_info=True
+                    )
+                    self.notify(
+                        "Failed to get cell content.",
+                        title="Copy Error",
+                        severity="error",
+                        timeout=3,
+                    )
+                    return
+            else:
+                self.notify(
+                    "DataTable has no active cursor or cell selected.",
+                    title="Copy Info",
+                    severity="info",
+                    timeout=3,
+                )
                 return
-            except Exception as e:
-                logger.error("Paste failed", exc_info=e)
-                self.notify("Paste failed", title="Paste Error", severity="error")
+        elif isinstance(focused, (Static, Label)):
+            source_widget_type = focused.__class__.__name__
+
+            widget_content = getattr(focused, "renderable", None)
+            if isinstance(widget_content, Text):
+                text_to_copy = widget_content.plain
+            elif isinstance(widget_content, str):
+                text_to_copy = widget_content
+
+        if text_to_copy is not None:
+            if text_to_copy.strip():
+                try:
+                    self.copy_to_clipboard(text_to_copy)
+                    display_text = text_to_copy.replace("\n", "↵")
+                    self.notify(
+                        f"Copied from {source_widget_type}: '{display_text[:30]}{'...' if len(display_text) > 30 else ''}'",
+                        title="Copy Success",
+                        timeout=3,
+                    )
+                except Exception as e:
+                    logger.error("Copy to clipboard failed", exc_info=e)
+                    self.notify(
+                        "Copy to system clipboard failed. Check logs/permissions.",
+                        title="Copy Error",
+                        severity="error",
+                        timeout=5,
+                    )
                 return
-        self.notify("Cannot paste here", title="Paste Info", severity="warning")
+            else:
+                self.notify(
+                    f"Focused {source_widget_type} is empty.",
+                    title="Copy Info",
+                    severity="info",
+                    timeout=3,
+                )
+                return
+
+        self.notify(
+            "No text selected or suitable widget focused to copy.",
+            title="Copy Info",
+            severity="info",
+            timeout=3,
+        )
 
     def action_toggle_theme(self) -> None:
         self.dark = not self.dark
@@ -151,36 +212,39 @@ class MongoAnalyserApp(App[None]):
             logger.error(
                 f"Failed to switch theme to '{chosen}': {e}. Theme may not be registered or CSS is missing."
             )
-            self.dark = True
 
 
 def main_interactive_tui():
     log_dir = Path(os.getenv("MONGO_ANALYSER_LOG_DIR", Path.cwd()))
     log_file = log_dir / "mongo_analyser_tui.log"
     log_dir.mkdir(parents=True, exist_ok=True)
-
+    enable_devtools = os.getenv("MONGO_ANALYSER_DEBUG", "0") == "1"
     handlers = [
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8"),
+        logging.FileHandler(log_file, mode="a", encoding="utf-8"),
     ]
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         handlers=handlers,
         force=True,
-        format="%(asctime)s %(levelname)s %(name)s:%(lineno)d - %(message)s",
+        format="%(asctime)s %(levelname)-8s %(name)s:%(lineno)d - %(message)s",
     )
-
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("litellm").setLevel(logging.WARNING)
-    logger.info("--- Starting Mongo Analyser TUI ---")
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("google.generativeai").setLevel(logging.WARNING)
 
+    logger.info("--- Starting Mongo Analyser TUI ---")
+    if enable_devtools:
+        logger.info("Textual Devtools are enabled (MONGO_ANALYSER_DEBUG=1).")
     try:
         app = MongoAnalyserApp()
+        if enable_devtools:
+            app.devtools = True
+            app.debug = True
         app.run()
-    except Exception as e:
-        logger.critical("App crashed", exc_info=True)
-        logger.error("Unhandled exception in TUI: %s", e)
+    except Exception:
+        logger.critical("MongoAnalyserApp crashed", exc_info=True)
     finally:
         logger.info("--- Exiting Mongo Analyser TUI ---")
         core_db_manager.disconnect_all_mongo()

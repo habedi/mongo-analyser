@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from mongo_analyser.core.analyser import SchemaAnalyser
+from mongo_analyser.dialogs import ErrorDialog
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
@@ -24,9 +26,6 @@ from textual.widgets import (
     Static,
 )
 from textual.worker import Worker, WorkerCancelled
-
-from mongo_analyser.core.analyser import SchemaAnalyser
-from mongo_analyser.dialogs import ErrorDialog
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +198,7 @@ class SchemaAnalysisView(Container):
                     self.set_timer(
                         3,
                         lambda: setattr(self, "schema_copy_feedback", Text("")),
-                        "clear_feedback_timer",
+                        name="clear_feedback_timer",
                     )
                 else:
                     logger.debug("Feedback is empty, not setting clear timer.")
