@@ -1,6 +1,6 @@
 <div align="center">
   <picture>
-    <img alt="Mongo Analyser Logo" src="logo.svg" height="30%" width="30%">
+    <img alt="Mongo Analyser Logo" src="logo.svg" height="25%" width="25%">
   </picture>
 <br>
 
@@ -32,6 +32,8 @@ data.
 - Identifies the types of fields in the collection
 - Provides insights into the distribution of data
 - Provides a user-friendly TUI with integrated AI assistance
+
+---
 
 ### Installation
 
