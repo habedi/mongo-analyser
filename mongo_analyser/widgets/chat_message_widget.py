@@ -11,6 +11,8 @@ class ChatMessageWidget(Vertical):
         self.content = content
 
     def compose(self) -> ComposeResult:
-        role_text = Text(f"{self.role.upper()}:")
+        role_text_str = self.role.upper()
+        role_text = Text(role_text_str, no_wrap=True)
+
         yield Static(role_text, classes=f"role_{self.role.lower()}")
         yield Markdown(self.content)

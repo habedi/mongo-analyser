@@ -13,7 +13,16 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.css.query import NoMatches
 from textual.reactive import reactive
-from textual.widgets import Button, DataTable, Input, Label, Markdown, Select, Static
+from textual.widgets import (
+    Button,
+    DataTable,
+    Input,
+    Label,
+    LoadingIndicator,
+    Markdown,
+    Select,
+    Static,
+)
 from textual.worker import Worker, WorkerCancelled
 
 from mongo_analyser.core.analyser import SchemaAnalyser
@@ -46,8 +55,14 @@ class SchemaAnalysisView(Container):
             allow_blank=True,
         )
         yield Label("Sample Size (-1 for all documents):")
-        yield Input(id="schema_sample_size_input", value="1000", placeholder="e.g., 1000 or -1")
+        yield Input(
+            id="schema_sample_size_input",
+            value="1000",
+            placeholder="e.g., 1000 or -1",
+            tooltip="Number of documents to sample for analysis. -1 processes all documents (can be slow).",
+        )
         yield Button("Analyze Schema", variant="primary", id="analyze_schema_button")
+        yield LoadingIndicator(id="schema_loading_indicator")
         yield Static(self.analysis_status, id="schema_status_label")
         yield Label("Collection Field Analysis:", classes="panel_title_small")
         yield DataTable(
@@ -70,8 +85,11 @@ class SchemaAnalysisView(Container):
         self.update_collection_select()
         try:
             self.query_one("#schema_save_path_input", Input).value = self._get_default_save_path()
+            self.query_one("#schema_loading_indicator", LoadingIndicator).display = False
         except NoMatches:
-            logger.warning("SchemaAnalysisView: #schema_save_path_input not found on mount.")
+            logger.warning(
+                "SchemaAnalysisView: #schema_save_path_input or #schema_loading_indicator not found on mount."
+            )
         table = self.query_one("#schema_results_table", DataTable)
         if not table.columns:
             table.add_columns(
@@ -156,6 +174,7 @@ class SchemaAnalysisView(Container):
         self._current_schema_json_str = "{}"
         md.update(f"```json\n{self._current_schema_json_str}\n```")
         self.app.current_schema_analysis_results = None
+        self.analysis_status = Text("Results cleared. Select a collection and click Analyze Schema")
 
     def watch_analysis_status(self, new_status: Text) -> None:
         if self.is_mounted:
@@ -165,16 +184,33 @@ class SchemaAnalysisView(Container):
                 pass
 
     def watch_schema_copy_feedback(self, new_feedback: Text) -> None:
+        logger.debug(
+            f"watch_schema_copy_feedback TRIGGERED. New feedback plain text: '{new_feedback.plain}'"
+        )
         if self.is_mounted:
             try:
                 lbl = self.query_one("#schema_copy_feedback_label", Static)
+                logger.debug(
+                    f"Found #schema_copy_feedback_label. Updating with: '{new_feedback.plain}'"
+                )
                 lbl.update(new_feedback)
                 if new_feedback.plain:
-                    self.set_timer(3, lambda: setattr(self, "schema_copy_feedback", Text("")))
+                    logger.debug("Setting timer to clear feedback.")
+                    self.set_timer(
+                        3,
+                        lambda: setattr(self, "schema_copy_feedback", Text("")),
+                        "clear_feedback_timer",
+                    )
+                else:
+                    logger.debug("Feedback is empty, not setting clear timer.")
             except NoMatches:
-                pass
+                logger.warning(
+                    "#schema_copy_feedback_label NOT FOUND in watch_schema_copy_feedback!"
+                )
             except Exception as e:
                 logger.error(f"Error in watch_schema_copy_feedback: {e}", exc_info=True)
+        else:
+            logger.debug("watch_schema_copy_feedback: View not mounted, skipping update.")
 
     def _prepare_analysis_inputs(
         self,
@@ -193,10 +229,7 @@ class SchemaAnalysisView(Container):
             )
         try:
             sel = self.query_one("#schema_collection_select", Select)
-            if sel.value != Select.BLANK:
-                coll = str(sel.value)
-            else:
-                coll = None
+            coll = str(sel.value) if sel.value != Select.BLANK else None
             size = self.query_one("#schema_sample_size_input", Input).value.strip()
         except NoMatches:
             return (
@@ -230,8 +263,11 @@ class SchemaAnalysisView(Container):
         btn = event.button.id
         if btn == "analyze_schema_button":
             self._clear_analysis_results()
+            loading_indicator = self.query_one("#schema_loading_indicator", LoadingIndicator)
+            loading_indicator.display = True
             self.analysis_status = Text.from_markup("[#EBCB8B]Preparing analysis...[/]")
             self.schema_copy_feedback = Text("")
+
             uri, db, coll, size_str, err = self._prepare_analysis_inputs()
             if err or not uri or not db or not coll:
                 self.analysis_status = err or Text.from_markup(
@@ -239,31 +275,32 @@ class SchemaAnalysisView(Container):
                 )
                 if err:
                     await self.app.push_screen(ErrorDialog("Input Error", err.plain))
+                if self.is_mounted:
+                    loading_indicator.display = False
                 return
+
             size = int(size_str)
             self.analysis_status = Text.from_markup(
                 f"[#EBCB8B]Analyzing '{coll}' (sample: {size if size >= 0 else 'all'})...[/]"
             )
+
             try:
                 callable_with_args = functools.partial(self._run_analysis_task, uri, db, coll, size)
                 worker: Worker = self.app.run_worker(
                     callable_with_args, thread=True, group="schema_analysis"
                 )
                 schema_data, field_stats_data, hierarchical_schema, error_msg = await worker.wait()
+
                 if worker.is_cancelled:
                     self.analysis_status = Text.from_markup(
                         "[#D08770]Analysis cancelled by user.[/]"
                     )
-                    return
-                if error_msg:
+                elif error_msg:
                     self.analysis_status = Text.from_markup(
                         f"[#BF616A]Analysis Error: {error_msg}[/]"
                     )
                     await self.app.push_screen(ErrorDialog("Analysis Error", error_msg))
-                    return
-                table = self.query_one("#schema_results_table", DataTable)
-                md_view = self.query_one("#schema_json_view", Markdown)
-                if schema_data and field_stats_data and hierarchical_schema is not None:
+                elif schema_data and field_stats_data and hierarchical_schema is not None:
                     self.current_hierarchical_schema = hierarchical_schema
                     self.app.current_schema_analysis_results = {
                         "flat_schema": schema_data,
@@ -271,6 +308,8 @@ class SchemaAnalysisView(Container):
                         "hierarchical_schema": hierarchical_schema,
                         "collection_name": coll,
                     }
+                    table = self.query_one("#schema_results_table", DataTable)
+                    md_view = self.query_one("#schema_json_view", Markdown)
                     if not table.columns:
                         table.add_columns(
                             "Field",
@@ -339,6 +378,10 @@ class SchemaAnalysisView(Container):
                     f"[#BF616A]Unexpected Error: {str(e)[:70]}[/]"
                 )
                 await self.app.push_screen(ErrorDialog("Unexpected Analysis Error", str(e)))
+            finally:
+                if self.is_mounted:
+                    loading_indicator.display = False
+
         elif btn == "save_schema_json_button":
             save_path_str = self.query_one("#schema_save_path_input", Input).value.strip()
             if not save_path_str:
@@ -371,6 +414,7 @@ class SchemaAnalysisView(Container):
                 await self.app.push_screen(
                     ErrorDialog("Save Error", f"Could not save schema: {e!s}")
                 )
+
         elif btn == "copy_json_button":
             if self._current_schema_json_str and self._current_schema_json_str != "{}":
                 self.app.copy_to_clipboard(self._current_schema_json_str)
@@ -381,6 +425,7 @@ class SchemaAnalysisView(Container):
                     "[#D08770]No JSON to copy. Analyze first.[/]"
                 )
                 self.app.notify("No JSON content to copy.", title="Copy Info", severity="warning")
+
         elif btn == "copy_cell_button":
             try:
                 table = self.query_one("#schema_results_table", DataTable)
@@ -392,10 +437,12 @@ class SchemaAnalysisView(Container):
                     self.app.notify("No cell selected.", title="Copy Info", severity="warning")
                     return
                 r, c = coord
-                cell = table.get_cell_at(coord)
-                val = cell.plain if isinstance(cell, Text) else str(cell)
-                self.app.copy_to_clipboard(val)
-                self.schema_copy_feedback = Text.from_markup(f"[#A3BE8C]Cell ({r},{c}) copied![/]")
+                cell_value = table.get_cell_at(coord)
+                val_to_copy = cell_value.plain if isinstance(cell_value, Text) else str(cell_value)
+                self.app.copy_to_clipboard(val_to_copy)
+                self.schema_copy_feedback = Text.from_markup(
+                    f"[#A3BE8C]Cell ({r},{c}) value copied![/]"
+                )
                 self.app.notify(f"Cell ({r},{c}) copied.", title="Copy Success")
             except Exception as e:
                 logger.error(f"Error copying cell value: {e}", exc_info=True)
@@ -403,11 +450,14 @@ class SchemaAnalysisView(Container):
                     f"[#BF616A]Error copying cell: {str(e)[:50]}[/]"
                 )
                 await self.app.push_screen(ErrorDialog("Copy Error", f"Could not copy cell: {e!s}"))
+
         elif btn == "copy_table_csv_button":
             try:
                 table = self.query_one("#schema_results_table", DataTable)
                 if table.row_count == 0:
-                    self.schema_copy_feedback = Text.from_markup("[#D08770]No data for CSV.[/]")
+                    self.schema_copy_feedback = Text.from_markup(
+                        "[#D08770]No data in table for CSV.[/]"
+                    )
                     self.app.notify(
                         "No data in table for CSV.", title="Copy Info", severity="warning"
                     )
@@ -420,12 +470,14 @@ class SchemaAnalysisView(Container):
                 ]
                 writer.writerow(headers)
                 for i in range(table.row_count):
-                    row = table.get_row_at(i)
+                    row_data = table.get_row_at(i)
                     writer.writerow(
-                        [cell.plain if isinstance(cell, Text) else str(cell) for cell in row]
+                        [cell.plain if isinstance(cell, Text) else str(cell) for cell in row_data]
                     )
                 self.app.copy_to_clipboard(output.getvalue())
-                self.schema_copy_feedback = Text.from_markup("[#A3BE8C]Table copied as CSV![/]")
+                self.schema_copy_feedback = Text.from_markup(
+                    "[#A3BE8C]Analysis table copied as CSV![/]"
+                )
                 self.app.notify("Table copied as CSV.", title="Copy Success")
             except Exception as e:
                 logger.error(f"Error copying table as CSV: {e}", exc_info=True)
@@ -446,7 +498,9 @@ class SchemaAnalysisView(Container):
             )
             if not schema_data and not field_stats_data:
                 return {}, {}, {}, None
-            hierarchical_schema = SchemaAnalyser.schema_to_hierarchical(schema_data)
+            hierarchical_schema = SchemaAnalyser.schema_to_hierarchical(
+                schema_data if schema_data else {}
+            )
             return schema_data, field_stats_data, hierarchical_schema, None
         except (PyMongoConnectionFailure, PyMongoOperationFailure, ConnectionError) as e:
             logger.error(f"Schema analysis: DB error: {e}", exc_info=False)

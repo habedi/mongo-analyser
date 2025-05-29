@@ -32,6 +32,8 @@ data.
 - Identifies the types of fields in the collection
 - Provides insights into the distribution of data
 - Provides a user-friendly TUI with integrated AI assistance
+- Works with MongoDB Atlas and self-hosted MongoDB instances
+- Works with models from Ollama, OpenAI, and Google
 
 ---
 

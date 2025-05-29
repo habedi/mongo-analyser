@@ -10,7 +10,15 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.css.query import NoMatches
 from textual.reactive import reactive
-from textual.widgets import Button, Input, Label, Markdown, Select, Static
+from textual.widgets import (
+    Button,
+    Input,
+    Label,
+    LoadingIndicator,
+    Markdown,
+    Select,
+    Static,
+)
 from textual.worker import Worker, WorkerCancelled
 
 from mongo_analyser.core.extractor import get_newest_documents
@@ -38,6 +46,10 @@ class DataExplorerView(Container):
         self._last_collections: List[str] = []
         self.update_collection_select()
         self._update_doc_nav_buttons_and_label()
+        try:
+            self.query_one("#data_fetch_loading_indicator", LoadingIndicator).display = False
+        except NoMatches:
+            logger.warning("DataExplorerView: #data_fetch_loading_indicator not found on mount.")
 
     def compose(self) -> ComposeResult:
         yield Label("Collection:")
@@ -50,20 +62,17 @@ class DataExplorerView(Container):
         yield Label("Sample Size (Newest Docs):")
         yield Input(id="data_explorer_sample_size_input", value="10", placeholder="e.g., 10")
         yield Button("Fetch Sample Documents", id="fetch_documents_button", variant="primary")
+        yield LoadingIndicator(id="data_fetch_loading_indicator")
         yield Static(self.status_message, id="data_explorer_status")
-
         with Horizontal(id="document_navigation"):
             yield Button("Previous", id="prev_doc_button", disabled=True)
             yield Label("Doc 0 of 0", id="doc_nav_label")
             yield Button("Next", id="next_doc_button", disabled=True)
-
         with VerticalScroll(id="document_display_area"):
             yield Markdown("```json\n{}\n```", id="document_json_view")
-
         with Horizontal(classes="action_button_group"):
             yield Button("Copy Current Doc", id="copy_current_doc_button")
             yield Button("Copy All Sampled Docs", id="copy_all_docs_button")
-
         yield Label("Save Sampled Documents Path:", classes="panel_title_small")
         yield Input(id="sample_docs_save_path_input", value=self._get_default_sample_save_path())
         yield Button("Save All Sampled Docs to File", id="save_sample_docs_button")
@@ -79,7 +88,6 @@ class DataExplorerView(Container):
         try:
             select_widget = self.query_one("#data_explorer_collection_select", Select)
             save_path_input = self.query_one("#sample_docs_save_path_input", Input)
-
             collections = self.app.available_collections
             if collections == self._last_collections:
                 current_active_coll = (
@@ -89,16 +97,13 @@ class DataExplorerView(Container):
                 )
                 save_path_input.value = self._get_path_for_collection_output(current_active_coll)
                 return
-
             self._last_collections = list(collections)
-
             if collections:
                 options = [(c, c) for c in collections]
                 current_value = select_widget.value
                 select_widget.set_options(options)
                 select_widget.disabled = False
                 select_widget.prompt = "Select Collection"
-
                 active_app_coll = self.app.active_collection
                 if active_app_coll in collections:
                     select_widget.value = active_app_coll
@@ -106,13 +111,11 @@ class DataExplorerView(Container):
                     select_widget.value = current_value
                 else:
                     select_widget.value = Select.BLANK
-
             else:
                 select_widget.set_options([])
                 select_widget.prompt = "Connect to DB to see collections"
                 select_widget.disabled = True
                 select_widget.value = Select.BLANK
-
             current_selected_coll = (
                 str(select_widget.value) if select_widget.value != Select.BLANK else None
             )
@@ -121,7 +124,6 @@ class DataExplorerView(Container):
             )
             self.sample_documents = []
             self.status_message = Text("Select a collection and fetch documents.")
-
         except NoMatches:
             logger.warning("DataExplorerView: Select or save path input not found for update.")
         except Exception as e:
@@ -140,13 +142,11 @@ class DataExplorerView(Container):
         new_coll = str(event.value) if event.value != Select.BLANK else None
         if new_coll != self.app.active_collection:
             self.app.active_collection = new_coll
-
         try:
             save_path_input = self.query_one("#sample_docs_save_path_input", Input)
             save_path_input.value = self._get_path_for_collection_output(new_coll)
         except NoMatches:
             logger.warning("DataExplorerView: Save path input not found during collection change.")
-
         self.sample_documents = []
         self.status_message = Text("Collection changed. Fetch new sample documents.")
         self.feedback_message = Text("")
@@ -156,6 +156,7 @@ class DataExplorerView(Container):
         uri = self.app.current_mongo_uri
         db_name = self.app.current_db_name
         self.feedback_message = Text("")
+        loader = self.query_one("#data_fetch_loading_indicator", LoadingIndicator)
 
         try:
             sel = self.query_one("#data_explorer_collection_select", Select)
@@ -198,16 +199,11 @@ class DataExplorerView(Container):
 
         self.status_message = Text(f"Fetching documents from '{collection_name}'…")
         self.sample_documents = []
+        loader.display = True
 
         try:
             worker: Worker[List[Dict[str, Any]]] = self.app.run_worker(
-                partial(
-                    get_newest_documents,
-                    uri,
-                    db_name,
-                    collection_name,
-                    sample_size,
-                ),
+                partial(get_newest_documents, uri, db_name, collection_name, sample_size),
                 thread=True,
                 group="doc_fetch",
             )
@@ -228,6 +224,9 @@ class DataExplorerView(Container):
             logger.error(f"Error fetching documents: {e}", exc_info=True)
             self.status_message = Text.from_markup(f"[#BF616A]Error: {str(e)[:100]}[/]")
             await self.app.push_screen(ErrorDialog("Fetch Error", str(e)))
+        finally:
+            if self.is_mounted:
+                loader.display = False
 
     def _update_document_view(self) -> None:
         try:
@@ -291,7 +290,6 @@ class DataExplorerView(Container):
             self.feedback_message = Text.from_markup("[#BF616A]Invalid document index.[/]")
             self.app.notify("Invalid document index.", title="Copy Error", severity="error")
             return
-
         try:
             current_doc = self.sample_documents[self.current_document_index]
             doc_json_str = json.dumps(current_doc, indent=2, default=str)
@@ -313,7 +311,6 @@ class DataExplorerView(Container):
             self.feedback_message = Text.from_markup("[#D08770]No documents loaded to copy.[/]")
             self.app.notify("No documents to copy.", title="Copy Info", severity="warning")
             return
-
         try:
             all_docs_json_str = json.dumps(self.sample_documents, indent=2, default=str)
             self.app.copy_to_clipboard(all_docs_json_str)
@@ -341,19 +338,16 @@ class DataExplorerView(Container):
         except NoMatches:
             self.app.notify("Save path input not found.", title="UI Error", severity="error")
             return
-
         if not save_path_str:
             self.feedback_message = Text.from_markup("[#BF616A]Save path cannot be empty.[/]")
             self.app.notify("Save path empty.", title="Save Error", severity="error")
             return
-
         if not self.sample_documents:
             self.feedback_message = Text.from_markup(
                 "[#D08770]No documents to save. Fetch samples first.[/]"
             )
             self.app.notify("No documents to save.", title="Save Info", severity="warning")
             return
-
         save_path = Path(save_path_str)
         try:
             save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -395,8 +389,7 @@ class DataExplorerView(Container):
     ) -> None:
         if old_docs != new_docs:
             logger.debug(
-                f"DataExplorerView: sample_documents changed. "
-                f"Old len: {len(old_docs)}, New len: {len(new_docs)}"
+                f"DataExplorerView: sample_documents changed. Old len: {len(old_docs)}, New len: {len(new_docs)}"
             )
             self.current_document_index = 0
             self._update_document_view()

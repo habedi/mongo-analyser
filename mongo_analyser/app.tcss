@@ -1,3 +1,5 @@
+/* mongo_analyser/app.tcss */
+
 /* General App Styles */
 Screen {
     background: $surface-darken-1;
@@ -28,13 +30,62 @@ Tabs {
     padding: 0 1;
 }
 
+/* Active Tab Styling */
+Tabs Tab.-active {
+    background: $accent-darken-1;
+    color: $text-accent;
+    text-style: bold;
+}
+Tabs Tab {
+    background: $primary-background;
+    color: $text;
+}
+
 /* Styles for the main view containers within ContentSwitcher */
 ContentSwitcher > #view_chat_content,
 ContentSwitcher > #view_db_connection_content,
 ContentSwitcher > #view_schema_analysis_content,
 ContentSwitcher > #view_data_explorer_content {
-    padding: 1;
+    padding: 1; /* Base padding for all views */
     overflow: auto;
+    border: round $background-lighten-2; /* Subtle border for view delineation */
+}
+
+/* Enhanced Focus and Hover Styles */
+Input:focus,
+TextArea:focus {
+    border: tall $accent; /* More prominent focus border for Input and TextArea */
+}
+
+Select:focus {
+    /* No special border for Select on focus, it will use its default */
+}
+/*
+Select:focus > .select--selection-list {
+    border-left: thick $accent;
+}
+*/
+
+Button:focus {
+    border: round $accent;
+}
+Button:hover {
+    background: $primary-darken-1; /* General button hover */
+}
+Button.-primary:hover {
+    background: $success-darken-1;
+}
+Button.-error:hover {
+    background: $error-darken-1;
+}
+
+/* Base style for LoadingIndicator */
+LoadingIndicator {
+    display: none; /* Hide by default */
+    width: 100%;
+    height: auto;
+    margin-top: 1; /* Default spacing if shown */
+    color: $secondary;
 }
 
 /* Common Panel Titles */
@@ -44,349 +95,140 @@ ContentSwitcher > #view_data_explorer_content {
     width: 100%;
     text-align: center;
     color: $secondary;
+    margin-bottom: 1;
 }
 .panel_title_small {
     padding-top: 1;
     text-style: bold;
     width: 100%;
     color: $secondary-darken-1;
+    margin-bottom: 1; /* Changed 0.5 to 1 */
 }
 
 /* ChatView Specific Styles */
-#view_chat_content #chat_interface_horizontal_layout {
-    layout: horizontal;
-    height: 100%;
-    width: 100%;
-}
-
-#view_chat_content .chat_column_main {
-    width: 2fr;
-    height: 100%;
-    padding-right: 1;
-}
-
-#view_chat_content .chat_column_sidebar {
-    width: 1fr;
-    min-width: 35;
-    max-width: 50;
-    height: 100%;
-}
-
-#view_chat_content #chat_status_line {
-    width: 100%;
-    height: auto;
-    padding: 0 1;
-    margin-bottom: 1;
-    border: round $primary-background-darken-2;
-    background: $primary-background-darken-1;
-}
-
-#view_chat_content #chat_log_widget { /* This is the ChatMessageList */
-    width: 100%;
-    height: 1fr;
-    border: round $primary-darken-2;
-    margin-bottom: 1;
-    padding: 1;
-    background: $boost;
-}
-
-#view_chat_content .chat_action_buttons {
-    layout: horizontal;
-    height: auto;
-    width: 100%;
-    margin-bottom: 1;
-    align: center middle;
-}
-#view_chat_content .chat_action_buttons Button {
-    width: 1fr;
-    margin: 0 1;
-    height: 3;
-    min-width: 15;
-}
-
-#view_chat_content .chat_input_container {
-    height: auto;
-    width: 100%;
-    align: left bottom;
-    margin-top: 1;
-    layout: horizontal;
-}
-
-#view_chat_content #chat_message_input { /* Input widget within ChatInput */
-    width: 1fr;
-    min-height: 3;
-    margin-right: 1;
-}
-
-#view_chat_content .chat_button { /* Send/Stop buttons */
-    width: auto;
-    height: 100%;
-    min-width: 8;
-}
-#view_chat_content #send_chat_message_button {
-    margin-right:1;
-}
+#view_chat_content #chat_interface_horizontal_layout { layout: horizontal; height: 100%; width: 100%; }
+#view_chat_content .chat_column_main { width: 2fr; height: 100%; padding-right: 1; }
+#view_chat_content .chat_column_sidebar { width: 1fr; min-width: 35; max-width: 50; height: 100%; }
+#view_chat_content #chat_status_line { width: 100%; height: auto; padding: 0 1; margin-bottom: 1; border: round $primary-background-darken-2; background: $primary-background-darken-1; }
+#view_chat_content #chat_model_loading_indicator { color: $secondary; height: 1; margin: 0 1; }
+#view_chat_content #chat_log_widget { width: 100%; height: 1fr; margin-bottom: 1; background: $boost; }
+#view_chat_content .chat_action_buttons { layout: horizontal; height: auto; width: 100%; margin-bottom: 1; align: center middle; }
+#view_chat_content .chat_action_buttons Button { width: 1fr; margin: 0 1; height: 3; min-width: 15; }
+#view_chat_content .chat_input_container { height: auto; width: 100%; align: left bottom; margin-top: 1; layout: horizontal; }
+#view_chat_content #chat_message_input { width: 1fr; min-height: 3; margin-right: 1; }
+#view_chat_content .chat_button { width: auto; height: 100%; min-width: 8; }
+#view_chat_content #send_chat_message_button { margin-right:1; }
 
 
 /* DB Connection View */
-#view_db_connection_content Label {
+#view_db_connection_content > * {
     margin-top: 1;
 }
-#view_db_connection_content > Label:first-child { /* Consistent top spacing */
+#view_db_connection_content > *:first-child {
     margin-top: 0;
 }
-
-#view_db_connection_content Input {
-    width: 100%;
-}
-#view_db_connection_content #connect_mongo_button {
-    margin-top: 1;
-    width: 100%;
-}
-#view_db_connection_content #mongo_connection_status_label {
-    margin-top: 1;
-    padding: 1;
-    width: 100%;
-    text-align: center;
-    border: round $background-lighten-2;
-    height: auto;
-}
-#view_db_connection_content #collections_title_label {
-    margin-top: 2;
-}
-#view_db_connection_content .collections_list_container {
-    margin-top:1;
-    border: round $primary-darken-1;
-    height: 12;
-    padding:0;
-    background: $primary-background-darken-3;
-    overflow: auto;
-}
-#view_db_connection_content #indexes_title_label {
-    margin-top: 1;
-}
-#view_db_connection_content #indexes_data_table {
-    margin-top:1;
-    border: round $primary-darken-1;
-    height: 10;
-    padding:0;
-    background: $primary-background-darken-3;
-    overflow: auto;
-}
+#view_db_connection_content #collections_title_label { margin-top: 1; }
+#view_db_connection_content #indexes_title_label { margin-top: 1; }
+#view_db_connection_content Input { width: 100%; }
+#view_db_connection_content #connect_mongo_button { width: 100%; }
+#view_db_connection_content #mongo_connection_status_label { padding: 1; width: 100%; text-align: center; border: round $background-lighten-2; height: auto; }
+#view_db_connection_content .collections_list_container { border: round $primary-darken-1; height: 12; padding:0; background: $primary-background-darken-3; overflow: auto; }
+#view_db_connection_content #indexes_data_table { border: round $primary-darken-1; height: 10; padding:0; background: $primary-background-darken-3; overflow: auto; }
 
 
 /* Schema Analysis View */
-#view_schema_analysis_content Input {
-    width: 100%;
-    margin-bottom:1;
-}
-#view_schema_analysis_content Select {
-    width: 100%;
-    margin-bottom:1;
-}
-#view_schema_analysis_content #analyze_schema_button {
-    width: 100%;
-    margin-top:1;
-    margin-bottom:1;
-}
-#view_schema_analysis_content #save_schema_json_button {
-    width: 100%;
-    margin-top:1;
-    margin-bottom:1;
-}
-#view_schema_analysis_content #schema_results_table {
-    margin-top:1;
-    height: 20;
-    border: round $primary-darken-1;
-    overflow: auto;
-}
-#view_schema_analysis_content .json_view_container {
-    margin-top:1;
-    height: 15;
-    border: round $primary-darken-1;
-    background: $primary-background-darken-3;
-    padding: 1;
-    overflow: auto;
-}
-#view_schema_analysis_content .copy_button_container {
-    layout: horizontal;
-    height: auto;
+#view_schema_analysis_content > * {
     margin-top: 1;
-    width: 100%;
-    align: center middle;
 }
-#view_schema_analysis_content .copy_button_container Button {
-    width: 1fr;
-    margin: 0 1;
+#view_schema_analysis_content > *:first-child {
+    margin-top: 0;
 }
-#view_schema_analysis_content #schema_copy_feedback_label {
-    width: 100%;
-    text-align: center;
-    height: 1;
-    margin-top: 1;
-    color: $success;
-}
-#view_schema_analysis_content #schema_status_label {
-    margin-top: 1;
-    height: auto;
-}
+#view_schema_analysis_content Input { width: 100%; }
+#view_schema_analysis_content Select { width: 100%; }
+#view_schema_analysis_content #analyze_schema_button { width: 100%; }
+#view_schema_analysis_content #save_schema_json_button { width: 100%; }
+#view_schema_analysis_content #schema_loading_indicator { margin-bottom: 0; margin-top: 1; }
+#view_schema_analysis_content #schema_results_table { height: 20; border: round $primary-darken-1; overflow: auto; }
+#view_schema_analysis_content .json_view_container { height: 15; border: round $primary-darken-1; background: $primary-background-darken-3; padding: 1; overflow: auto; }
+#view_schema_analysis_content .copy_button_container { layout: horizontal; height: auto; width: 100%; align: center middle; }
+#view_schema_analysis_content .copy_button_container Button { width: 1fr; margin: 0 1; }
+#view_schema_analysis_content #schema_copy_feedback_label { width: 100%; text-align: center; height: 1; color: $success; }
+#view_schema_analysis_content #schema_status_label { height: auto; }
+
 
 /* Styles for Custom Widgets */
 
-/* ChatMessageWidget */
+/* ChatMessageWidget - New Styling */
 ChatMessageWidget {
     width: 100%;
     height: auto;
-    padding: 1;
+    padding: 1 2; /* Changed 1 1.5 to 1 2 (vertical, horizontal) */
     margin-bottom: 1;
-    border: round $primary-background-darken-2;
+    border: round $primary-background-darken-3;
+    background: $surface;
+}
+ChatMessageWidget > Static:first-child { /* Role Label */
+    width: 100%;
+    padding: 0 0 1 0; /* Changed padding: 0 0 0.5 0; to 0 0 1 0 (bottom padding 1) */
+    margin-bottom: 1; /* Changed 0.5 to 1 */
+    text-style: bold; /* 'uppercase' removed, handle in Python */
 }
 ChatMessageWidget .role_user { color: $success; }
 ChatMessageWidget .role_assistant { color: $secondary; }
-ChatMessageWidget .role_system { color: $warning; }
-ChatMessageWidget > Markdown { background: transparent; margin-top: 0; }
+ChatMessageWidget .role_system { color: $warning; text-style: bold italic; }
+
+ChatMessageWidget > Markdown {
+    background: transparent;
+    margin-top: 0;
+}
+
 
 /* CollectionStatsWidget */
-CollectionStatsWidget {
-    height: auto;
-    border: round $primary-darken-1;
-    padding: 1;
-}
+CollectionStatsWidget { height: auto; border: round $primary-darken-1; padding: 1; }
 CollectionStatsWidget > Label { margin-bottom: 1; text-style: bold; }
 
-/* ChatMessageList */
-ChatMessageList {
-    width: 100%;
-}
+/* ChatMessageList (container for ChatMessageWidgets) */
+ChatMessageList { width: 100%; }
 
 /* LLMConfigPanel */
-LLMConfigPanel {
-    border: round $primary-darken-1;
-    background: $primary-background-darken-3;
-    padding: 0 1;
-    overflow-y: auto;
-}
+LLMConfigPanel { border: round $primary-darken-1; background: $primary-background-darken-3; padding: 0 1; overflow-y: auto; }
 LLMConfigPanel > Label { margin-top: 1; }
 LLMConfigPanel > Input, LLMConfigPanel > Select { width: 100%; }
 LLMConfigPanel > Button { width: 100%; margin-top: 1; }
 
-/* ChatInput (Container for the chat message Input) */
-ChatInput {
-    layout: horizontal;
-    height: auto;
-    width: 100%;
-}
-/* min-height for the Input inside ChatInput is handled by #view_chat_content #chat_message_input */
-
+/* ChatInput (Container for the chat message Input widget) */
+ChatInput { layout: horizontal; height: auto; width: 100%; }
 
 /* Dialog Styles */
-
-/* ConfirmDialog */
 ConfirmDialog { align: center middle; }
-ConfirmDialog > Vertical {
-    background: $panel;
-    width: auto; min-width: 40; max-width: 80%;
-    height: auto; padding: 2;
-    border: thick $primary;
-}
+ConfirmDialog > Vertical { background: $panel; width: auto; min-width: 40; max-width: 80%; height: auto; padding: 2; border: thick $primary; }
 ConfirmDialog Label { margin-bottom: 1; }
 ConfirmDialog Horizontal { align: right middle; margin-top: 1; height: auto;}
 ConfirmDialog Button { margin-left: 1; }
 
-/* ErrorDialog */
-ErrorDialog {
-    align: center middle;
-}
-ErrorDialog > Vertical {
-    background: $panel-darken-2;
-    color: $text;
-    width: auto;
-    min-width: 40;
-    max-width: 80%;
-    height: auto;
-    padding: 1 2;
-    border: thick $error;
-}
-ErrorDialog Static { /* Base for Label */
-    margin-bottom: 1;
-    text-align: center;
-}
-ErrorDialog Label { /* More specific styling for Labels within ErrorDialog */
-    margin-top:1;
-    margin-bottom: 1;
-}
-ErrorDialog Center {
-    margin-top: 1;
-    height: auto;
-}
+ErrorDialog { align: center middle; }
+ErrorDialog > Vertical { background: $panel-darken-2; color: $text; width: auto; min-width: 40; max-width: 80%; height: auto; padding: 1 2; border: thick $error; }
+ErrorDialog Static { margin-bottom: 1; text-align: center; }
+ErrorDialog Label { margin-top:1; margin-bottom: 1; }
+ErrorDialog Center { margin-top: 1; height: auto; }
 
 /* Data Explorer View Styles */
-#view_data_explorer_content > Label {
+#view_data_explorer_content > * {
     margin-top: 1;
 }
-#view_data_explorer_content > Label:first-child { /* Consistent top spacing */
+#view_data_explorer_content > *:first-child {
     margin-top: 0;
 }
-
-#view_data_explorer_content > Select {
-    width: 100%;
-    margin-bottom: 1;
-}
-#view_data_explorer_content > Input {
-    width: 100%;
-    margin-bottom: 1;
-}
-#view_data_explorer_content > Button {
-    width: 100%;
-    margin-bottom: 1;
-}
-#view_data_explorer_content #document_display_area {
-    margin-top: 1;
-    height: 20;
-    border: round $primary-darken-1;
-    background: $primary-background-darken-3;
-    padding: 1;
-    overflow: auto;
-}
-#view_data_explorer_content #document_navigation {
-    layout: horizontal;
-    height: auto;
-    margin-top: 1;
-    align: center middle;
-}
-#view_data_explorer_content #document_navigation Button {
-    width: 1fr;
-    max-width: 20;
-    margin: 0 1;
-}
-#view_data_explorer_content #doc_nav_label {
-    width: auto;
-    min-width: 10;
-    padding: 0 1;
-    text-align: center;
-}
-#view_data_explorer_content #data_explorer_status {
-    margin-top: 1;
-    height: auto;
-}
-#view_data_explorer_content #data_explorer_feedback_label {
-    width: 100%;
-    text-align: center;
-    height: 1;
-    margin-top: 1;
-    color: $success;
-}
-#view_data_explorer_content .action_button_group {
-    layout: horizontal;
-    height: auto;
-    width: 100%;
-    align: center middle;
-    margin-top: 1;
-}
-#view_data_explorer_content .action_button_group Button {
-    width: 1fr;
-    margin: 0 1;
-}
-#view_data_explorer_content .action_button_group Button:last-child {
-    margin-right: 0;
-}
+#view_data_explorer_content > Select { width: 100%; }
+#view_data_explorer_content > Input { width: 100%; }
+#view_data_explorer_content > Button { width: 100%; }
+#view_data_explorer_content #data_fetch_loading_indicator { margin-bottom: 0; margin-top: 1; }
+#view_data_explorer_content #document_display_area { height: 20; border: round $primary-darken-1; background: $primary-background-darken-3; padding: 1; overflow: auto; }
+#view_data_explorer_content #document_navigation { layout: horizontal; height: auto; align: center middle; }
+#view_data_explorer_content #document_navigation Button { width: 1fr; max-width: 20; margin: 0 1; }
+#view_data_explorer_content #doc_nav_label { width: auto; min-width: 10; padding: 0 1; text-align: center; }
+#view_data_explorer_content #data_explorer_status { height: auto; }
+#view_data_explorer_content #data_explorer_feedback_label { width: 100%; text-align: center; height: 1; color: $success; }
+#view_data_explorer_content .action_button_group { layout: horizontal; height: auto; width: 100%; align: center middle; }
+#view_data_explorer_content .action_button_group Button { width: 1fr; margin: 0 1; }
+#view_data_explorer_content .action_button_group Button:last-child { margin-right: 0; }

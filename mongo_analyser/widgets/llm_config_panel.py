@@ -32,7 +32,6 @@ class LLMConfigPanel(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         yield Label("Session Config", classes="panel_title")
-
         yield Label("Provider:")
         yield Select(
             [("Ollama", "ollama"), ("OpenAI", "openai"), ("Google", "google")],
@@ -41,7 +40,6 @@ class LLMConfigPanel(VerticalScroll):
             allow_blank=False,
             value="ollama",
         )
-
         yield Label("Model:")
         yield Select(
             [],
@@ -52,39 +50,39 @@ class LLMConfigPanel(VerticalScroll):
         )
 
         yield Label("Temperature (e.g., 0.7):")
-        yield Input(placeholder="0.7", id="llm_config_temperature", value="0.7")
+        yield Input(
+            placeholder="0.7",
+            id="llm_config_temperature",
+            value="0.7",
+            tooltip="Controls randomness (0.0-1.0). Higher values (e.g., 0.9) for more creative/diverse responses, lower (e.g., 0.2) for more deterministic/focused ones. Default: 0.7",
+        )
 
         yield Label("Max History (0=all, -1=none):")
-        yield Input(placeholder="20", id="llm_config_max_history", value="20")
-
-        yield Button(
-            "New Chat Session",
-            id="llm_config_new_session_button",
-            variant="primary",
+        yield Input(
+            placeholder="20",
+            id="llm_config_max_history",
+            value="20",
+            tooltip="Number of recent conversation turns (user+AI message pairs) to include as context. '0' includes all available history. '-1' includes no history (current message only).",
         )
+
+        yield Button("New Chat Session", id="llm_config_new_session_button", variant="primary")
 
     def on_mount(self) -> None:
         self.provider = None
         select = self.query_one("#llm_config_provider_select", Select)
-
         select.value = "ollama"
-
         ms = self.query_one("#llm_config_model_select", Select)
         ms.disabled = True
         ms.value = Select.BLANK
-
         self._update_temperature()
         self._update_max_history()
-
         logger.info("LLMConfigPanel: on_mount complete; loading default provider models.")
 
     async def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "llm_config_provider_select":
             new_provider_value = str(event.value)
-
             if self.provider != new_provider_value:
                 self.provider = new_provider_value
-
                 try:
                     model_select = self.query_one("#llm_config_model_select", Select)
                     model_select.set_options([])
@@ -94,9 +92,7 @@ class LLMConfigPanel(VerticalScroll):
                     self.model = None
                 except NoMatches:
                     logger.warning("LLMConfigPanel: Model select not found during provider change.")
-
                 self.post_message(self.ProviderChanged(self.provider))
-
         elif event.select.id == "llm_config_model_select":
             new_model_value = str(event.value) if event.value != Select.BLANK else None
             if self.model != new_model_value:
@@ -115,7 +111,6 @@ class LLMConfigPanel(VerticalScroll):
             self.temperature = float(temp_input.value)
         except ValueError:
             self.temperature = 0.7
-
         except NoMatches:
             logger.error("LLMConfigPanel: Temperature input not found.")
             self.temperature = 0.7
@@ -126,7 +121,6 @@ class LLMConfigPanel(VerticalScroll):
             self.max_history_messages = int(history_input.value)
         except ValueError:
             self.max_history_messages = 20
-
         except NoMatches:
             logger.error("LLMConfigPanel: Max history input not found.")
             self.max_history_messages = 20
@@ -141,13 +135,10 @@ class LLMConfigPanel(VerticalScroll):
         try:
             sel = self.query_one("#llm_config_model_select", Select)
             current_selected_model = sel.value
-
             sel.set_options(models)
-
             if models:
                 sel.disabled = False
                 sel.prompt = "Select Model"
-
                 if current_selected_model in [m_val for _, m_val in models]:
                     sel.value = current_selected_model
                 else:
@@ -174,7 +165,6 @@ class LLMConfigPanel(VerticalScroll):
             else:
                 if not sel.disabled:
                     sel.prompt = "Select Model"
-
         except NoMatches:
             logger.warning("LLMConfigPanel: Model select not found in set_model_select_loading.")
 
@@ -183,7 +173,6 @@ class LLMConfigPanel(VerticalScroll):
             return
         try:
             sel = self.query_one("#llm_config_model_select", Select)
-
             if sel.value != (new_model or Select.BLANK):
                 sel.value = new_model or Select.BLANK
         except NoMatches:
@@ -196,5 +185,4 @@ class LLMConfigPanel(VerticalScroll):
             "temperature": self.temperature,
             "max_history_messages": self.max_history_messages,
         }
-
         return {k: v for k, v in cfg.items() if v is not None}

@@ -1,16 +1,20 @@
-# mongo_analyser/views/chat_view.py
-
 import functools
 import json
 import logging
 from typing import Dict, List, Optional, Tuple, Type
 
+from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.widget import Widget
-from textual.widgets import Button, Input, Static
+from textual.widgets import (
+    Button,
+    Input,
+    LoadingIndicator,
+    Static,
+)
 from textual.worker import Worker, WorkerCancelled, WorkerFailed, WorkerState
 
 import mongo_analyser.core.db as core_db_manager
@@ -41,11 +45,8 @@ class ChatView(Container):
         "google": GoogleChat,
     }
 
-    # Define markers for the injected schema block
     SCHEMA_INJECT_START_MARKER_BASE = "CONTEXT: The MongoDB schema for the collection '"
-    SCHEMA_INJECT_END_MARKER = (
-        "\n```\n\nBased on this schema, "  # Note: one less \n at start than prefix
-    )
+    SCHEMA_INJECT_END_MARKER = "\n```\n\nBased on this schema, "
 
     def __init__(
         self,
@@ -64,24 +65,8 @@ class ChatView(Container):
         )
         self.chat_history: List[Dict[str, str]] = []
 
-    def on_mount(self) -> None:
-        logger.info("ChatView: on_mount CALLED.")
-        self.chat_history: List[Dict[str, str]] = []
-        self.llm_client_instance = None
-        self._reset_chat_log_and_status("ChatView initialized. Configure LLM in sidebar.")
-        self.focus_default_widget()
-
-    def _reset_chat_log_and_status(self, status_message: str = "New session started.") -> None:
-        self.chat_history.clear()
-        try:
-            log_widget = self.query_one("#chat_log_widget", ChatMessageList)
-            log_widget.clear_messages()
-        except NoMatches:
-            logger.warning("Chat log widget not found for clearing during reset.")
-        self._log_chat_message(self.ROLE_SYSTEM, status_message)
-        self._update_chat_status_line(status="Idle", current_messages=0)
-
     def _log_chat_message(self, role: str, message_content: str) -> None:
+        """Logs a message to the chat display."""
         try:
             chat_list_widget = self.query_one("#chat_log_widget", ChatMessageList)
             chat_list_widget.add_message(role, message_content)
@@ -91,39 +76,10 @@ class ChatView(Container):
         except Exception as e:
             logger.error(f"Error logging chat message: {e}", exc_info=True)
 
-    def compose(self) -> ComposeResult:
-        with Horizontal(id="chat_interface_horizontal_layout"):
-            with Vertical(id="chat_main_area", classes="chat_column_main"):
-                yield Static(
-                    "Provider: N/A | Model: N/A | History: 0 (max: N/A) | Status: Idle",
-                    id="chat_status_line",
-                    classes="chat_status",
-                )
-                yield ChatMessageList(id="chat_log_widget")
-                with Horizontal(classes="chat_action_buttons"):
-                    yield Button("Inject Active Schema", id="inject_schema_button")
-                with Horizontal(id="chat_input_bar", classes="chat_input_container"):
-                    yield Input(placeholder="Type a message...", id="chat_message_input")
-                    yield Button(
-                        "Send",
-                        id="send_chat_message_button",
-                        variant="primary",
-                        classes="chat_button",
-                    )
-                    yield Button(
-                        "Stop", id="stop_chat_message_button", classes="chat_button", disabled=True
-                    )
-            yield LLMConfigPanel(id="chat_llm_config_panel", classes="chat_column_sidebar")
-
-    def focus_default_widget(self) -> None:
-        try:
-            self.query_one("#chat_message_input", Input).focus()
-        except NoMatches:
-            logger.debug("ChatView: Could not focus default input (#chat_message_input).")
-
     def _update_chat_status_line(
         self, status: str = "Idle", current_messages: int | None = None
     ) -> None:
+        """Updates the status line above the chat log."""
         try:
             panel = self.query_one(LLMConfigPanel)
             chat_status_widget = self.query_one("#chat_status_line", Static)
@@ -150,6 +106,59 @@ class ChatView(Container):
             logger.warning("ChatView: Could not update chat status line (widget not found).")
         except Exception as e:
             logger.error(f"Error updating chat status line: {e}", exc_info=True)
+
+    def _reset_chat_log_and_status(self, status_message: str = "New session started.") -> None:
+        """Clears chat history and resets the chat log display."""
+        self.chat_history.clear()
+        try:
+            log_widget = self.query_one("#chat_log_widget", ChatMessageList)
+            log_widget.clear_messages()
+        except NoMatches:
+            logger.warning("Chat log widget not found for clearing during reset.")
+        self._log_chat_message(self.ROLE_SYSTEM, status_message)
+        self._update_chat_status_line(status="Idle", current_messages=0)
+
+    def on_mount(self) -> None:
+        logger.info("ChatView: on_mount CALLED.")
+        self.chat_history: List[Dict[str, str]] = []
+        self.llm_client_instance = None
+        self._reset_chat_log_and_status("ChatView initialized. Configure LLM in sidebar.")
+        self.focus_default_widget()
+        try:
+            self.query_one("#chat_model_loading_indicator", LoadingIndicator).display = False
+        except NoMatches:
+            logger.warning("ChatView: #chat_model_loading_indicator not found on mount")
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="chat_interface_horizontal_layout"):
+            with Vertical(id="chat_main_area", classes="chat_column_main"):
+                yield Static(
+                    "Provider: N/A | Model: N/A | History: 0 (max: N/A) | Status: Idle",
+                    id="chat_status_line",
+                    classes="chat_status",
+                )
+                yield LoadingIndicator(id="chat_model_loading_indicator")
+                yield ChatMessageList(id="chat_log_widget")
+                with Horizontal(classes="chat_action_buttons"):
+                    yield Button("Inject Active Schema", id="inject_schema_button")
+                with Horizontal(id="chat_input_bar", classes="chat_input_container"):
+                    yield Input(placeholder="Type a message...", id="chat_message_input")
+                    yield Button(
+                        "Send",
+                        id="send_chat_message_button",
+                        variant="primary",
+                        classes="chat_button",
+                    )
+                    yield Button(
+                        "Stop", id="stop_chat_message_button", classes="chat_button", disabled=True
+                    )
+            yield LLMConfigPanel(id="chat_llm_config_panel", classes="chat_column_sidebar")
+
+    def focus_default_widget(self) -> None:
+        try:
+            self.query_one("#chat_message_input", Input).focus()
+        except NoMatches:
+            logger.debug("ChatView: Could not focus default input (#chat_message_input).")
 
     @on(LLMConfigPanel.ProviderChanged)
     async def handle_provider_change_from_llm_config_panel(
@@ -179,13 +188,17 @@ class ChatView(Container):
 
     async def _load_models_for_provider(self, provider_value: str) -> None:
         logger.debug(f"ChatView: Starting _load_models_for_provider for '{provider_value}'")
+        loader = self.query_one("#chat_model_loading_indicator", LoadingIndicator)
         try:
             panel = self.query_one(LLMConfigPanel)
         except NoMatches:
             logger.error("ChatView: LLMConfigPanel not found when loading models.")
             self._log_chat_message(self.ROLE_SYSTEM, "Internal error: LLM config panel missing.")
             self._update_chat_status_line(status="Panel Error")
+            if loader.is_mounted:
+                loader.display = False
             return
+
         llm_class = self.PROVIDER_CLASSES.get(provider_value)
         if not llm_class:
             panel.update_models_list([], f"Unknown provider: {provider_value}")
@@ -198,16 +211,23 @@ class ChatView(Container):
             self._log_chat_message(
                 self.ROLE_SYSTEM, f"Cannot load models for unknown provider: {provider_value}"
             )
+            if loader.is_mounted:
+                loader.display = False
             return
+
         panel.set_model_select_loading(True, f"Loading models for {provider_value}...")
         self._update_chat_status_line(status=f"Loading {provider_value} models...")
         self._log_chat_message(self.ROLE_SYSTEM, f"Fetching models for {provider_value}...")
+        if loader.is_mounted:
+            loader.display = True
+
         listed: List[str] = []
         error: Optional[str] = None
         if panel.provider != provider_value:
             panel.provider = provider_value
         client_cfg_from_panel = panel.get_llm_config()
         client_cfg_from_panel["provider_hint"] = provider_value
+
         try:
             worker: Worker[List[str]] = self.app.run_worker(
                 functools.partial(llm_class.list_models, client_config=client_cfg_from_panel),
@@ -222,7 +242,11 @@ class ChatView(Container):
         except Exception as e:
             logger.error(f"ChatView: Error listing models for {provider_value}: {e}", exc_info=True)
             error = f"Failed to list models: {e.__class__.__name__}: {str(e)[:60]}"
+
+        if loader.is_mounted:
+            loader.display = False
         panel.set_model_select_loading(False)
+
         determined_model_for_panel: Optional[str] = None
         current_status_after_listing = "Models loaded"
         if error:
@@ -275,6 +299,7 @@ class ChatView(Container):
                     panel.model = None
                 else:
                     determined_model_for_panel = None
+
         self._update_chat_status_line(status=current_status_after_listing)
         logger.info(
             f"ChatView: _load_models_for_provider determined model for panel: '{panel.model}'. Directly processing this model."
@@ -580,54 +605,19 @@ class ChatView(Container):
 
         schema_str = await self._get_active_collection_schema_for_injection()
         if schema_str is None:
-            return  # Error/notification already handled by _get_active_collection_schema_for_injection
+            return
 
         try:
             inp = self.query_one("#chat_message_input", Input)
             current_val = inp.value
-
-            # Define the new prefix block for the current schema
             new_schema_prefix_block = (
                 f"{self.SCHEMA_INJECT_START_MARKER_BASE}{coll}' is as follows:\n"
                 f"```json\n{schema_str}{self.SCHEMA_INJECT_END_MARKER}"
             )
-
-            # Regex to find an existing injected schema block
-            # It looks for the start marker, captures the collection name, then any characters (non-greedy)
-            # up to the JSON triple backticks, then the JSON content (non-greedy),
-            # then the closing triple backticks and the end marker.
-            # This regex is a bit complex due to needing to match varying collection names and JSON.
-            # A simpler string search for start and end markers might be more robust if schema content itself is not matched.
-
-            # Simpler approach: find the start and end markers of any existing block
-            # Start marker: "CONTEXT: The MongoDB schema for the collection '"
-            # End marker for the *entire block*: "\n\nBased on this schema, " (which is part of new_schema_prefix_block)
-
-            text_after_any_previous_schema = (
-                current_val  # Default to all current text if no old schema found
-            )
-
-            # Check if an old schema block exists
-            # We look for "CONTEXT: The MongoDB schema for the collection '"
-            # and then find where that block logically ends ("\n```\n\nBased on this schema, ")
-            # This will allow us to replace it.
-
-            # Find a pattern that matches any previously injected block precisely enough.
-            # Example: "CONTEXT: The MongoDB schema for the collection 'some_coll_name' is as follows:\n```json\n{...}\n```\n\nBased on this schema, "
-            # The varying parts are 'some_coll_name' and {...}
-            # We can use a regex or simpler string splitting.
-
-            # Using string splitting for simplicity and robustness:
-            # Check if current_val starts with the base marker
+            text_after_any_previous_schema = current_val
             if current_val.startswith(self.SCHEMA_INJECT_START_MARKER_BASE):
-                # Try to find the end of the JSON block and the trailing "Based on this schema, "
-                # The end marker for the JSON part of the prefix is self.SCHEMA_INJECT_END_MARKER
-                # The full end of the prefix block we want to replace is new_schema_prefix_block minus schema_str and coll_name.
-
-                # Let's find the first occurrence of "\n\nBased on this schema, " which signifies the end of our injected context
                 end_of_context_marker_for_stripping = "\n\nBased on this schema, "
                 try:
-                    # Find where the old injected context ends and the user's actual message begins
                     idx_after_old_context = current_val.index(
                         end_of_context_marker_for_stripping
                     ) + len(end_of_context_marker_for_stripping)
@@ -636,35 +626,31 @@ class ChatView(Container):
                         f"Found existing schema context. User text after it: '{text_after_any_previous_schema}'"
                     )
                 except ValueError:
-                    # The end marker wasn't found, meaning the user might have altered the injected text.
-                    # In this case, it's safer to just prepend to whatever is there,
-                    # or decide to replace the whole thing if it starts with the marker.
-                    # For now, if it starts with marker but end is broken, we'll just prepend to original (might duplicate start_marker part).
-                    # A better strategy might be to replace the whole input if it starts with marker but is mangled.
                     logger.debug(
-                        "Existing schema context start marker found, but end marker is missing/altered. Prepending to original content."
+                        "Existing schema context start marker found, but end marker is missing/altered."
                     )
-                    text_after_any_previous_schema = current_val  # Fallback to using the whole current_val if structure is broken
-                    # To avoid duplicating the start marker if it's mangled, we could clear inp.value here if current_val.startswith(self.SCHEMA_INJECT_START_MARKER_BASE)
-                    # For this fix, let's ensure it doesn't heavily duplicate if only end part is missing:
-                    if current_val.startswith(
-                        self.SCHEMA_INJECT_START_MARKER_BASE
-                    ):  # if structure is broken but starts like a schema
-                        text_after_any_previous_schema = (
-                            ""  # Discard potentially broken prefix and user query after it
-                        )
+                    if current_val.startswith(self.SCHEMA_INJECT_START_MARKER_BASE):
+                        text_after_any_previous_schema = ""
                         self._log_chat_message(
                             self.ROLE_SYSTEM,
                             "Existing schema context was altered. Replacing with new schema.",
                         )
+            inp.value = new_schema_prefix_block + text_after_any_previous_schema.lstrip()
 
-            # Construct the new value
-            inp.value = (
-                new_schema_prefix_block + text_after_any_previous_schema.lstrip()
-            )  # lstrip to remove leading space from user text
+            button = self.query_one("#inject_schema_button", Button)
+            original_label = button.label
+            button.label = Text("Schema Injected ✓", style="italic green")
+            button.disabled = True
+
+            def revert_button_state():
+                if button.is_mounted:
+                    button.label = original_label
+                    button.disabled = False
+
+            self.set_timer(2.5, revert_button_state)
 
             inp.focus()
-            inp.action_end()  # Move cursor to the end
+            inp.action_end()
             self._log_chat_message(
                 self.ROLE_SYSTEM,
                 f"Schema for collection '{coll}' has been prepared and added to your message input. You can now ask questions about it or use it in your query.",
@@ -672,9 +658,8 @@ class ChatView(Container):
             self.app.notify(
                 f"Schema for '{coll}' injected/updated in input.", title="Schema Injected"
             )
-
         except NoMatches:
-            logger.error("Chat input widget not found for schema injection.")
+            logger.error("Chat input widget or inject button not found for schema injection.")
             self.app.notify("Chat input field not found.", title="UI Error", severity="error")
 
     @on(LLMConfigPanel.NewSessionRequested)
