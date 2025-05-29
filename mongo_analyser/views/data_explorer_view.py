@@ -4,8 +4,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List
 
-from mongo_analyser.core.extractor import get_newest_documents
-from mongo_analyser.dialogs import ErrorDialog
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -22,6 +20,9 @@ from textual.widgets import (
     Static,
 )
 from textual.worker import Worker, WorkerCancelled
+
+from mongo_analyser.core.extractor import get_newest_documents
+from mongo_analyser.dialogs import ErrorDialog
 
 logger = logging.getLogger(__name__)
 
