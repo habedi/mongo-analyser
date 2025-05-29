@@ -71,8 +71,8 @@ class DataExplorerView(Container):
             yield Markdown("```json\n{}\n```", id="document_json_view")
         with Horizontal(classes="action_button_group"):
             yield Button("Copy Current Doc", id="copy_current_doc_button")
-            yield Button("Copy All Sampled Docs", id="copy_all_docs_button")
-        yield Label("Save Sampled Documents Path:", classes="panel_title_small")
+            yield Button("Copy All Docs", id="copy_all_docs_button")
+        yield Label("Save File Path:", classes="panel_title_small")
         yield Input(id="sample_docs_save_path_input", value=self._get_default_sample_save_path())
         yield Button("Save All Sampled Docs to File", id="save_sample_docs_button")
         yield Static(self.feedback_message, id="data_explorer_feedback_label")
@@ -330,7 +330,6 @@ class DataExplorerView(Container):
 
     @on(Button.Pressed, "#save_sample_docs_button")
     async def save_all_docs_to_file(self) -> None:
-        save_path_str = ""
         try:
             save_path_input = self.query_one("#sample_docs_save_path_input", Input)
             save_path_str = save_path_input.value.strip()

@@ -226,7 +226,8 @@ class OpenAIChat(LLMChat):
             ]
 
             logger.info(
-                f"Found {len(all_models)} OpenAI models, displaying {len(filtered_models)} after filtering."
+                f"Found {len(all_models)} OpenAI models, displaying {len(filtered_models)}"
+                f" after filtering."
             )
             return filtered_models
         except openai.APIError as e:

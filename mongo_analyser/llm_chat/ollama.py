@@ -176,7 +176,8 @@ class OllamaChat(LLMChat):
             ]
 
             logger.info(
-                f"Found {len(all_models)} Ollama models, displaying {len(filtered_models)} after filtering."
+                f"Found {len(all_models)} Ollama models, displaying {len(filtered_models)}"
+                f" after filtering."
             )
             if not all_models:
                 logger.warning(

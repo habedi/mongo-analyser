@@ -51,7 +51,7 @@ class DBConnectionView(Container):
             id="mongo_uri_input", value=os.getenv("MONGO_URI", "mongodb://localhost:27017/")
         )
         yield Label("Database Name (optional, overrides URI's DB if specified):")
-        yield Input(id="mongo_db_name_input", placeholder="e.g., my_database")
+        yield Input(id="mongo_db_name_input", placeholder="my_database")
         yield Button("Connect to DB", variant="primary", id="connect_mongo_button")
         yield Static(self.connection_status, id="mongo_connection_status_label")
 

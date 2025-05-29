@@ -174,7 +174,10 @@ class GoogleChat(LLMChat):
                     and response.prompt_feedback
                     and response.prompt_feedback.block_reason
                 ):
-                    return f"Error: Prompt blocked by Google. Reason: {response.prompt_feedback.block_reason.name}."
+                    return (
+                        f"Error: Prompt blocked by Google. Reason:"
+                        f" {response.prompt_feedback.block_reason.name}."
+                    )
                 if (
                     hasattr(response, "candidates")
                     and response.candidates
@@ -207,7 +210,10 @@ class GoogleChat(LLMChat):
                     and chunk.prompt_feedback
                     and chunk.prompt_feedback.block_reason
                 ):
-                    yield f"Error: Prompt blocked by Google. Reason: {chunk.prompt_feedback.block_reason.name}."
+                    yield (
+                        f"Error: Prompt blocked by Google. Reason:"
+                        f" {chunk.prompt_feedback.block_reason.name}."
+                    )
                     return
                 if chunk.parts:
                     for part in chunk.parts:
@@ -266,7 +272,8 @@ class GoogleChat(LLMChat):
             filtered_models.sort()
 
             logger.info(
-                f"Found {len(all_models_from_api)} Google models supporting generateContent, displaying {len(filtered_models)} after filtering."
+                f"Found {len(all_models_from_api)} Google models supporting generateContent,"
+                f" displaying {len(filtered_models)} after filtering."
             )
             return filtered_models
         except Exception as e:

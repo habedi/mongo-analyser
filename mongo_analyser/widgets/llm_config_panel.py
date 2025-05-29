@@ -28,7 +28,7 @@ class LLMConfigPanel(VerticalScroll):
     provider: reactive[Optional[str]] = reactive(None)
     model: reactive[Optional[str]] = reactive(None)
     temperature: reactive[Optional[float]] = reactive(0.7)
-    max_history_messages: reactive[Optional[int]] = reactive(30)
+    max_history_messages: reactive[Optional[int]] = reactive(20)
 
     def compose(self) -> ComposeResult:
         yield Label("Session Config", classes="panel_title")
@@ -49,20 +49,22 @@ class LLMConfigPanel(VerticalScroll):
             value=Select.BLANK,
         )
 
-        yield Label("Temperature (e.g., 0.7):")
+        yield Label("Temperature (default: 0.7):")
         yield Input(
             placeholder="0.7",
             id="llm_config_temperature",
             value="0.7",
-            tooltip="Controls randomness (0.0-1.0). Higher values (e.g., 0.9) for more creative/diverse responses, lower (e.g., 0.2) for more deterministic/focused ones. Default: 0.7",
+            tooltip="Controls randomness (0.0-1.0). Higher values (e.g., 0.9) for more creative and"
+            " diverse responses, lower (e.g., 0.2) for more deterministic/focused ones. Default: 0.7",
         )
 
         yield Label("Max History (0=all, -1=none):")
         yield Input(
-            placeholder="30",
+            placeholder="20",
             id="llm_config_max_history",
-            value="30",
-            tooltip="Number of recent conversation turns (user+AI message pairs) to include as context. '0' includes all available history. '-1' includes no history (current message only).",
+            value="20",
+            tooltip="Number of recent conversation turns (user+AI message pairs) to include as context."
+            " '0' includes all available history. '-1' includes no history (current message only).",
         )
 
         yield Button("New Chat Session", id="llm_config_new_session_button", variant="primary")
@@ -120,10 +122,10 @@ class LLMConfigPanel(VerticalScroll):
             history_input = self.query_one("#llm_config_max_history", Input)
             self.max_history_messages = int(history_input.value)
         except ValueError:
-            self.max_history_messages = 30
+            self.max_history_messages = 20
         except NoMatches:
             logger.error("LLMConfigPanel: Max history input not found.")
-            self.max_history_messages = 30
+            self.max_history_messages = 20
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "llm_config_new_session_button":

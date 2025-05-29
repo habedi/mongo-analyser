@@ -1,4 +1,3 @@
-from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Markdown, Static
@@ -11,8 +10,5 @@ class ChatMessageWidget(Vertical):
         self.content = content
 
     def compose(self) -> ComposeResult:
-        role_text_str = self.role.upper()
-        role_text = Text(role_text_str, no_wrap=True)
-
-        yield Static(role_text, classes=f"role_{self.role.lower()}")
-        yield Markdown(self.content)
+        yield Static(self.role.upper(), classes=f"message-role role_{self.role.lower()}")
+        yield Markdown(self.content, classes="message-content-box")

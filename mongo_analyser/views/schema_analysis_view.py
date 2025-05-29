@@ -15,6 +15,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.css.query import NoMatches
 from textual.reactive import reactive
+from textual.widget import Widget
 from textual.widgets import (
     Button,
     DataTable,
@@ -36,6 +37,17 @@ class SchemaAnalysisView(Container):
     current_hierarchical_schema: Dict = {}
     _current_schema_json_str: str = "{}"
 
+    def __init__(
+        self,
+        *children: Widget,
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+        classes: Optional[str] = None,
+        disabled: bool = False,
+    ):
+        super().__init__(*children, name=name, id=id, classes=classes, disabled=disabled)
+        self._last_collections: List[str] = []
+
     def _get_default_save_path(self) -> str:
         db_name = self.app.current_db_name
         collection_name = self.app.active_collection
@@ -46,7 +58,7 @@ class SchemaAnalysisView(Container):
         return "output/default_schema.json"
 
     def compose(self) -> ComposeResult:
-        yield Label("Collection Name:")
+        yield Label("Collection:")
         yield Select(
             [],
             prompt="Connect to DB to see collections",
@@ -63,21 +75,23 @@ class SchemaAnalysisView(Container):
         yield Button("Analyze Schema", variant="primary", id="analyze_schema_button")
         yield LoadingIndicator(id="schema_loading_indicator")
         yield Static(self.analysis_status, id="schema_status_label")
-        yield Label("Collection Field Analysis:", classes="panel_title_small")
+        yield Label("Inferred Metadata:", classes="panel_title_small")
         yield DataTable(
             id="schema_results_table", show_header=True, show_cursor=True, cursor_type="row"
         )
-        yield Label("Hierarchical Schema (JSON):", classes="panel_title_small")
+        yield Label("Inferred Schema (JSON):", classes="panel_title_small")
         with VerticalScroll(classes="json_view_container"):
             yield Markdown("```json\n{}\n```", id="schema_json_view")
-        yield Label("Save Schema to File Path:", classes="panel_title_small")
-        yield Input(id="schema_save_path_input", value=self._get_default_save_path())
-        yield Button("Save Schema to File", id="save_schema_json_button")
+
         with Horizontal(classes="copy_button_container"):
             yield Button("Copy Cell Value", id="copy_cell_button")
-            yield Button("Copy Schema JSON", id="copy_json_button")
-            yield Button("Copy Analysis Table (CSV)", id="copy_table_csv_button")
+            yield Button("Copy Collection Schema", id="copy_json_button")
+            yield Button("Copy Collection Metadata", id="copy_table_csv_button")
         yield Static(self.schema_copy_feedback, id="schema_copy_feedback_label")
+
+        yield Label("Save File Path:", classes="panel_title_small")
+        yield Input(id="schema_save_path_input", value=self._get_default_save_path())
+        yield Button("Save Schema to File", id="save_schema_json_button")
 
     def on_mount(self) -> None:
         self._last_collections: List[str] = []
@@ -280,7 +294,7 @@ class SchemaAnalysisView(Container):
 
             size = int(size_str)
             self.analysis_status = Text.from_markup(
-                f"[#EBCB8B]Analyzing '{coll}' (sample: {size if size >= 0 else 'all'})...[/]"
+                f"[#EBCB8B]Analyzing content of '{coll}' using a sample of {size if size >= 0 else 'all'} docs...[/]"
             )
 
             try:
