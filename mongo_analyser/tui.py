@@ -22,8 +22,13 @@ CSSPathType = Union[str, Path, List[Union[str, Path]]]
 
 
 class MongoAnalyserApp(App[None]):
+    """
+    Main TUI application for Mongo Analyser.
+    Toggles based on the 'dark' attribute on Ctrl+T.
+    """
+
     TITLE = "Mongo Analyser TUI"
-    CSS_PATH = "app.tcss"
+    CSS_PATH = "app.tcss" # Ensure this file, or others in CSS_PATH, define styles for themes if needed
 
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True, priority=True),
@@ -40,7 +45,7 @@ class MongoAnalyserApp(App[None]):
     active_collection: reactive[Optional[str]] = reactive(None)
     current_schema_analysis_results: reactive[Optional[dict]] = reactive(None)
 
-    is_dark_theme_active: reactive[bool] = reactive(True)
+    dark: bool # Flag to indicate current theme state
 
     def __init__(
         self,
@@ -49,17 +54,22 @@ class MongoAnalyserApp(App[None]):
         watch_css: bool = False,
     ):
         super().__init__(driver_class, css_path, watch_css)
-        self.is_dark_theme_active = True
+        self.dark = True # Default to dark theme state on startup
 
     def on_mount(self) -> None:
-        self.action_apply_theme()
-        logger.info(f"Starting with theme: {'dracula' if self.is_dark_theme_active else 'light'}")
+        """Apply the initial theme on mount."""
+        # For this to work, "dracula" and "textual-dark" must be valid theme names
+        # recognized by Textual, either as built-ins in your Textual version,
+        # registered themes (via App.register_theme), or through CSS selectors
+        # like Screen[theme="dracula"] in your loaded CSS.
+        chosen = "dracula" if self.dark else "textual-dark"
+        try:
+            self.theme = chosen
+            logger.info(f"Starting with theme: {chosen}")
+        except Exception as e: # Catch potential errors if themes are not found
+            logger.error(f"Failed to set initial theme '{chosen}': {e}. Falling back to default.")
+            # Fallback or further error handling might be needed if self.theme assignment fails
 
-    def action_apply_theme(self) -> None:
-        """Applies the current theme (dark or light)."""
-        # Assuming "dracula" is your preferred dark theme and "light" is Textual's built-in light theme.
-        # If you have a custom light theme CSS, replace "light" with its name.
-        self.theme = "dracula" if self.is_dark_theme_active else "light"
 
     def watch_available_collections(self, old: List[str], new: List[str]) -> None:
         for view_cls in (SchemaAnalysisView, DataExplorerView):
@@ -139,9 +149,14 @@ class MongoAnalyserApp(App[None]):
         self.notify("Cannot paste here", title="Paste Info", severity="warning")
 
     def action_toggle_theme(self) -> None:
-        self.is_dark_theme_active = not self.is_dark_theme_active
-        self.action_apply_theme()
-        logger.info(f"Switched to theme: {'dracula' if self.is_dark_theme_active else 'light'}")
+        self.dark = not self.dark
+        chosen = "dracula" if self.dark else "textual-dark"
+        try:
+            self.theme = chosen # This assigns the string name to App.theme
+            logger.info(f"Switched to theme: {chosen}")
+        except Exception as e: # Catch potential errors if themes are not found
+            logger.error(f"Failed to switch theme to '{chosen}': {e}. Theme may not be registered or CSS is missing.")
+            self.dark = True # This itself might trigger Textual's default dark if self.theme failed.
 
 
 def main_interactive_tui():
@@ -168,8 +183,9 @@ def main_interactive_tui():
     try:
         app = MongoAnalyserApp()
         app.run()
-    except Exception:
+    except Exception as e:
         logger.critical("App crashed", exc_info=True)
+        logger.error("Unhandled exception in TUI: %s", e)
     finally:
         logger.info("--- Exiting Mongo Analyser TUI ---")
         core_db_manager.disconnect_all_mongo()
