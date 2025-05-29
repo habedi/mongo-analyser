@@ -96,7 +96,7 @@ class DataExplorerView(Container):
     sample_documents: reactive[List[Dict[str, Any]]] = reactive([])
     current_document_index: reactive[int] = reactive(0)
     status_message = reactive(Text("Select a collection and fetch documents."))
-    feedback_message = reactive(Text(""))  # For copy/save operations
+    feedback_message = reactive(Text(""))
 
     def _get_default_sample_save_path(self) -> str:
         db_name = self.app.current_db_name
@@ -109,7 +109,7 @@ class DataExplorerView(Container):
 
     def on_mount(self) -> None:
         self._last_collections: List[str] = []
-        self.update_collection_select()  # This will also set initial save path
+        self.update_collection_select()
         self._update_doc_nav_buttons_and_label()
 
     def compose(self) -> ComposeResult:
@@ -154,8 +154,7 @@ class DataExplorerView(Container):
             save_path_input = self.query_one("#sample_docs_save_path_input", Input)
 
             collections = self.app.available_collections
-            if collections == self._last_collections:  # Avoid unnecessary updates
-                # Still update save path if active collection changed through other means
+            if collections == self._last_collections:
                 current_active_coll = (
                     str(select_widget.value)
                     if select_widget.value != Select.BLANK
@@ -164,7 +163,7 @@ class DataExplorerView(Container):
                 save_path_input.value = self._get_path_for_collection_output(current_active_coll)
                 return
 
-            self._last_collections = list(collections)  # Cache the new list
+            self._last_collections = list(collections)
 
             if collections:
                 options = [(c, c) for c in collections]
@@ -176,25 +175,24 @@ class DataExplorerView(Container):
                 active_app_coll = self.app.active_collection
                 if active_app_coll in collections:
                     select_widget.value = active_app_coll
-                elif current_value in collections:  # Fallback to previous valid selection
+                elif current_value in collections:
                     select_widget.value = current_value
-                else:  # No valid previous or app active collection, set to blank or first
-                    select_widget.value = Select.BLANK  # Or options[0][1] if you prefer a default
+                else:
+                    select_widget.value = Select.BLANK
 
-            else:  # No collections
+            else:
                 select_widget.set_options([])
                 select_widget.prompt = "Connect to DB to see collections"
                 select_widget.disabled = True
                 select_widget.value = Select.BLANK
 
-            # Update save path based on the (potentially new) selection
             current_selected_coll = (
                 str(select_widget.value) if select_widget.value != Select.BLANK else None
             )
             save_path_input.value = self._get_path_for_collection_output(
                 current_selected_coll or self.app.active_collection
             )
-            self.sample_documents = []  # Clear documents when collection list changes
+            self.sample_documents = []
             self.status_message = Text("Select a collection and fetch documents.")
 
         except NoMatches:
@@ -213,25 +211,24 @@ class DataExplorerView(Container):
     @on(Select.Changed, "#data_explorer_collection_select")
     def on_collection_changed_de(self, event: Select.Changed) -> None:
         new_coll = str(event.value) if event.value != Select.BLANK else None
-        if new_coll != self.app.active_collection:  # Update app state only if truly changed
+        if new_coll != self.app.active_collection:
             self.app.active_collection = new_coll
 
-        # Update save path input based on new selection
         try:
             save_path_input = self.query_one("#sample_docs_save_path_input", Input)
             save_path_input.value = self._get_path_for_collection_output(new_coll)
         except NoMatches:
             logger.warning("DataExplorerView: Save path input not found during collection change.")
 
-        self.sample_documents = []  # Clear existing samples
+        self.sample_documents = []
         self.status_message = Text("Collection changed. Fetch new sample documents.")
-        self.feedback_message = Text("")  # Clear old feedback
+        self.feedback_message = Text("")
 
     @on(Button.Pressed, "#fetch_documents_button")
     async def fetch_documents_button_pressed(self) -> None:
         uri = self.app.current_mongo_uri
         db_name = self.app.current_db_name
-        self.feedback_message = Text("")  # Clear previous feedback
+        self.feedback_message = Text("")
 
         try:
             sel = self.query_one("#data_explorer_collection_select", Select)
@@ -318,7 +315,7 @@ class DataExplorerView(Container):
                 md_view.update("```json\n{}\n```")
         except NoMatches:
             logger.warning("DataExplorerView: Markdown view not found for update.")
-        except IndexError:  # Should ideally not happen if current_document_index is managed well
+        except IndexError:
             logger.warning(
                 "DataExplorerView: current_document_index out of bounds during view update."
             )
@@ -334,7 +331,7 @@ class DataExplorerView(Container):
             next_button = self.query_one("#next_doc_button", Button)
             nav_label = self.query_one("#doc_nav_label", Label)
             total_docs = len(self.sample_documents)
-            if total_docs > 0:  # current_document_index is 0-based
+            if total_docs > 0:
                 nav_label.update(f"Doc {self.current_document_index + 1} of {total_docs}")
                 prev_button.disabled = self.current_document_index <= 0
                 next_button.disabled = self.current_document_index >= total_docs - 1
@@ -432,7 +429,7 @@ class DataExplorerView(Container):
 
         save_path = Path(save_path_str)
         try:
-            save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+            save_path.parent.mkdir(parents=True, exist_ok=True)
             with save_path.open("w", encoding="utf-8") as f:
                 json.dump(self.sample_documents, f, indent=2, default=str)
             logger.info(f"Sampled documents have been saved to {save_path}")
@@ -457,12 +454,11 @@ class DataExplorerView(Container):
             try:
                 feedback_label = self.query_one("#data_explorer_feedback_label", Static)
                 feedback_label.update(new_feedback)
-                if new_feedback.plain:  # If there's a message
-                    # Auto-clear feedback after a few seconds
+                if new_feedback.plain:
                     self.set_timer(4, lambda: setattr(self, "feedback_message", Text("")))
             except NoMatches:
                 pass
-            except Exception as e:  # Should not happen but good for safety
+            except Exception as e:
                 logger.error(f"Error in watch_feedback_message: {e}", exc_info=True)
 
     def watch_sample_documents(
@@ -470,18 +466,18 @@ class DataExplorerView(Container):
         old_docs: List[Dict[str, Any]],
         new_docs: List[Dict[str, Any]],
     ) -> None:
-        if old_docs != new_docs:  # React only on actual change
+        if old_docs != new_docs:
             logger.debug(
                 f"DataExplorerView: sample_documents changed. "
                 f"Old len: {len(old_docs)}, New len: {len(new_docs)}"
             )
-            self.current_document_index = 0  # Reset to first document
+            self.current_document_index = 0
             self._update_document_view()
             self._update_doc_nav_buttons_and_label()
-            self.feedback_message = Text("")  # Clear any old feedback on new docs
+            self.feedback_message = Text("")
 
     def watch_current_document_index(self, old_idx: int, new_idx: int) -> None:
         if old_idx != new_idx and self.is_mounted:
             self._update_document_view()
             self._update_doc_nav_buttons_and_label()
-            self.feedback_message = Text("")  # Optionally clear feedback on nav
+            self.feedback_message = Text("")

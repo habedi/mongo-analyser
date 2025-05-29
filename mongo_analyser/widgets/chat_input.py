@@ -1,4 +1,3 @@
-# mongo_analyser/widgets/chat_input.py
 from textual.app import ComposeResult
 from textual.css.query import NoMatches
 from textual.widgets import Input, Static

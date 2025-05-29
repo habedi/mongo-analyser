@@ -1,5 +1,5 @@
 import logging
-from typing import Union  # Keep Union for build_mongo_uri type hints
+from typing import Union
 from urllib.parse import quote_plus, urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,6 @@ def redact_uri_password(uri: str) -> str:
                 parsed = parsed._replace(netloc=new_netloc)
                 return urlunparse(parsed)
         return uri
-    except Exception as e:  # Keep broad exception for robustness in redaction
+    except Exception as e:
         logger.error(f"Error redacting URI password: {e}")
-        return uri  # Fallback to original URI on any error
+        return uri

@@ -43,12 +43,10 @@ class ErrorDialog(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Vertical() as v_layout:
             v_layout.border_title = self._title
-            # The title is now part of the border_title of the Vertical container
+
             yield Label(self._message, classes="dialog_message_error")
             with Center():
-                yield Button(
-                    "OK", variant="error", id="ok_button"
-                )  # variant="error" will use $error color
+                yield Button("OK", variant="error", id="ok_button")
 
     def on_mount(self) -> None:
         self.query_one("#ok_button", Button).focus()

@@ -1,5 +1,3 @@
-# tui.py
-
 import logging
 import os
 import sys
@@ -28,7 +26,7 @@ class MongoAnalyserApp(App[None]):
     """
 
     TITLE = "Mongo Analyser TUI"
-    CSS_PATH = "app.tcss" # Ensure this file, or others in CSS_PATH, define styles for themes if needed
+    CSS_PATH = "app.tcss"
 
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True, priority=True),
@@ -45,7 +43,7 @@ class MongoAnalyserApp(App[None]):
     active_collection: reactive[Optional[str]] = reactive(None)
     current_schema_analysis_results: reactive[Optional[dict]] = reactive(None)
 
-    dark: bool # Flag to indicate current theme state
+    dark: bool
 
     def __init__(
         self,
@@ -54,22 +52,17 @@ class MongoAnalyserApp(App[None]):
         watch_css: bool = False,
     ):
         super().__init__(driver_class, css_path, watch_css)
-        self.dark = True # Default to dark theme state on startup
+        self.dark = True
 
     def on_mount(self) -> None:
         """Apply the initial theme on mount."""
-        # For this to work, "dracula" and "textual-dark" must be valid theme names
-        # recognized by Textual, either as built-ins in your Textual version,
-        # registered themes (via App.register_theme), or through CSS selectors
-        # like Screen[theme="dracula"] in your loaded CSS.
+
         chosen = "dracula" if self.dark else "textual-dark"
         try:
             self.theme = chosen
             logger.info(f"Starting with theme: {chosen}")
-        except Exception as e: # Catch potential errors if themes are not found
+        except Exception as e:
             logger.error(f"Failed to set initial theme '{chosen}': {e}. Falling back to default.")
-            # Fallback or further error handling might be needed if self.theme assignment fails
-
 
     def watch_available_collections(self, old: List[str], new: List[str]) -> None:
         for view_cls in (SchemaAnalysisView, DataExplorerView):
@@ -152,11 +145,13 @@ class MongoAnalyserApp(App[None]):
         self.dark = not self.dark
         chosen = "dracula" if self.dark else "textual-dark"
         try:
-            self.theme = chosen # This assigns the string name to App.theme
+            self.theme = chosen
             logger.info(f"Switched to theme: {chosen}")
-        except Exception as e: # Catch potential errors if themes are not found
-            logger.error(f"Failed to switch theme to '{chosen}': {e}. Theme may not be registered or CSS is missing.")
-            self.dark = True # This itself might trigger Textual's default dark if self.theme failed.
+        except Exception as e:
+            logger.error(
+                f"Failed to switch theme to '{chosen}': {e}. Theme may not be registered or CSS is missing."
+            )
+            self.dark = True
 
 
 def main_interactive_tui():

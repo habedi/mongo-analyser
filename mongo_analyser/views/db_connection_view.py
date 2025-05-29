@@ -1,4 +1,4 @@
-import functools  # Import functools
+import functools
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -210,7 +210,6 @@ class DBConnectionView(Container):
             indexes_table.visible = False
 
             try:
-                # Use functools.partial to pre-bind arguments to the task
                 task_with_args = functools.partial(
                     self._connect_and_list_collections_task, uri_input, db_name_input
                 )
@@ -218,11 +217,10 @@ class DBConnectionView(Container):
                 worker: Worker[
                     Tuple[bool, Text, List[Dict[str, Any]], Optional[str], Optional[str]]
                 ] = self.app.run_worker(
-                    task_with_args,  # Pass the partial function
+                    task_with_args,
                     thread=True,
                     name=f"connect_worker_{db_name_input or 'default'}",
-                    # Optional: explicit name for worker
-                    group="db_operations",  # Optional: explicit group for worker
+                    group="db_operations",
                 )
                 (
                     task_success,
@@ -352,14 +350,13 @@ class DBConnectionView(Container):
 
             collection_obj = db_instance[collection_name]
 
-            # Use functools.partial for the lambda as well for consistency and clarity
             task_with_args = functools.partial(lambda: list(collection_obj.list_indexes()))
 
             worker: Worker[List[Dict]] = self.app.run_worker(
                 task_with_args,
                 thread=True,
-                name=f"list_indexes_{collection_name}",  # Optional: explicit name
-                group="db_operations",  # Optional: explicit group
+                name=f"list_indexes_{collection_name}",
+                group="db_operations",
             )
             raw_indexes = await worker.wait()
             indexes_table.clear()

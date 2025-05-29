@@ -318,9 +318,6 @@ def get_newest_documents(
             return []
 
         projection_doc: Optional[Dict[str, int]] = None
-        # if fields:
-        # projection_doc = {field: 1 for field in fields}
-        # if "_id" not in fields: projection_doc["_id"] = 0
 
         query_cursor = (
             collection.find(projection=projection_doc).sort("_id", DESCENDING).limit(sample_size)

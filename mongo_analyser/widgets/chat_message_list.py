@@ -1,6 +1,6 @@
 from textual.containers import VerticalScroll
 
-from .chat_message_widget import ChatMessageWidget  # Assuming it's in the same dir
+from .chat_message_widget import ChatMessageWidget
 
 
 class ChatMessageList(VerticalScroll):

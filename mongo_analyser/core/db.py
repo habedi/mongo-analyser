@@ -119,7 +119,6 @@ def get_mongo_db() -> PyMongoDatabase:
     if _db is None or _client is None:
         raise ConnectionError("Not connected to MongoDB. Call db_connection_active first.")
     try:
-        # Explicitly send the ping command as a dictionary
         _client.admin.command({"ping": 1})
     except (ConnectionFailure, OperationFailure) as e:
         logger.error(f"MongoDB connection lost when trying to get DB: {e}")

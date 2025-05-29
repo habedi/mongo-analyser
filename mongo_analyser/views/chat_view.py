@@ -3,7 +3,7 @@
 import functools
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Type
 
 from textual import on
 from textual.app import ComposeResult
@@ -16,7 +16,12 @@ from textual.worker import Worker, WorkerCancelled, WorkerFailed, WorkerState
 import mongo_analyser.core.db as core_db_manager
 from mongo_analyser.core.analyser import SchemaAnalyser
 from mongo_analyser.dialogs import ErrorDialog
-from mongo_analyser.llm_chat.wrapper import LiteLLMChat
+from mongo_analyser.llm_chat import (
+    GoogleChat,
+    LLMChat,
+    OllamaChat,
+    OpenAIChat,
+)
 from mongo_analyser.widgets import ChatMessageList, LLMConfigPanel
 
 logger = logging.getLogger(__name__)
@@ -24,11 +29,23 @@ logger = logging.getLogger(__name__)
 
 class ChatView(Container):
     current_llm_worker: Worker | None = None
-    llm_client_instance: LiteLLMChat | None = None
+    llm_client_instance: LLMChat | None = None
 
     ROLE_USER = "user"
     ROLE_AI = "assistant"
     ROLE_SYSTEM = "system"
+
+    PROVIDER_CLASSES: Dict[str, Type[LLMChat]] = {
+        "ollama": OllamaChat,
+        "openai": OpenAIChat,
+        "google": GoogleChat,
+    }
+
+    # Define markers for the injected schema block
+    SCHEMA_INJECT_START_MARKER_BASE = "CONTEXT: The MongoDB schema for the collection '"
+    SCHEMA_INJECT_END_MARKER = (
+        "\n```\n\nBased on this schema, "  # Note: one less \n at start than prefix
+    )
 
     def __init__(
         self,
@@ -37,7 +54,6 @@ class ChatView(Container):
         id: Optional[str] = None,
         classes: Optional[str] = None,
         disabled: bool = False,
-        markup: bool = True,
     ):
         super().__init__(
             *children,
@@ -45,7 +61,6 @@ class ChatView(Container):
             id=id,
             classes=classes,
             disabled=disabled,
-            markup=markup,
         )
         self.chat_history: List[Dict[str, str]] = []
 
@@ -70,6 +85,7 @@ class ChatView(Container):
         try:
             chat_list_widget = self.query_one("#chat_log_widget", ChatMessageList)
             chat_list_widget.add_message(role, message_content)
+            chat_list_widget.scroll_end(animate=False)
         except NoMatches:
             logger.warning("Chat log widget (#chat_log_widget) not found for logging message.")
         except Exception as e:
@@ -110,13 +126,11 @@ class ChatView(Container):
     ) -> None:
         try:
             panel = self.query_one(LLMConfigPanel)
-            chat_status = self.query_one("#chat_status_line", Static)
-
+            chat_status_widget = self.query_one("#chat_status_line", Static)
             prov = panel.provider or ""
             mdl = panel.model or ""
             provider_display = prov.capitalize() if prov else "N/A"
             model_display = mdl if mdl else "N/A"
-
             max_hist = panel.max_history_messages
             if max_hist == -1:
                 max_hist_display = "None"
@@ -124,15 +138,16 @@ class ChatView(Container):
                 max_hist_display = "All"
             else:
                 max_hist_display = str(max_hist)
-
             actual_hist_len = len(self._get_effective_history_for_llm())
             history_info = f"History: {actual_hist_len} (max: {max_hist_display})"
-
-            chat_status.update(
+            chat_status_widget.update(
                 f"Provider: {provider_display} | Model: {model_display} | {history_info} | Status: {status}"
             )
+            logger.debug(
+                f"Status line updated: Provider: {provider_display}, Model: {model_display}, Status: {status}"
+            )
         except NoMatches:
-            logger.warning("ChatView: Could not update chat status line.")
+            logger.warning("ChatView: Could not update chat status line (widget not found).")
         except Exception as e:
             logger.error(f"Error updating chat status line: {e}", exc_info=True)
 
@@ -143,81 +158,139 @@ class ChatView(Container):
         logger.info(f"ChatView: ProviderChanged event with provider: {event.provider}")
         self.llm_client_instance = None
         self._log_chat_message(self.ROLE_SYSTEM, "Provider changed. LLM client reset.")
-        self.app.call_later(self._load_models_for_provider, event.provider)
+        if event.provider:
+            try:
+                panel = self.query_one(LLMConfigPanel)
+                if panel.provider != event.provider:
+                    panel.provider = event.provider
+            except NoMatches:
+                pass
+            self.app.call_later(self._load_models_for_provider, event.provider)
+        else:
+            try:
+                panel = self.query_one(LLMConfigPanel)
+                panel.update_models_list([], "Select Provider First")
+                panel.model = None
+            except NoMatches:
+                logger.error(
+                    "ChatView: LLMConfigPanel not found when handling null provider change."
+                )
+            self._update_chat_status_line(status="Provider cleared")
 
-    async def _load_models_for_provider(self, provider_value: Optional[str]) -> None:
+    async def _load_models_for_provider(self, provider_value: str) -> None:
+        logger.debug(f"ChatView: Starting _load_models_for_provider for '{provider_value}'")
         try:
             panel = self.query_one(LLMConfigPanel)
         except NoMatches:
             logger.error("ChatView: LLMConfigPanel not found when loading models.")
+            self._log_chat_message(self.ROLE_SYSTEM, "Internal error: LLM config panel missing.")
+            self._update_chat_status_line(status="Panel Error")
             return
-
+        llm_class = self.PROVIDER_CLASSES.get(provider_value)
+        if not llm_class:
+            panel.update_models_list([], f"Unknown provider: {provider_value}")
+            if panel.model is not None:
+                panel.model = None
+            else:
+                await self.handle_model_change_from_llm_config_panel(
+                    LLMConfigPanel.ModelChanged(None)
+                )
+            self._log_chat_message(
+                self.ROLE_SYSTEM, f"Cannot load models for unknown provider: {provider_value}"
+            )
+            return
         panel.set_model_select_loading(True, f"Loading models for {provider_value}...")
         self._update_chat_status_line(status=f"Loading {provider_value} models...")
         self._log_chat_message(self.ROLE_SYSTEM, f"Fetching models for {provider_value}...")
-
         listed: List[str] = []
         error: Optional[str] = None
-        cfg = panel.get_llm_config()
-
+        if panel.provider != provider_value:
+            panel.provider = provider_value
+        client_cfg_from_panel = panel.get_llm_config()
+        client_cfg_from_panel["provider_hint"] = provider_value
         try:
             worker: Worker[List[str]] = self.app.run_worker(
-                functools.partial(
-                    LiteLLMChat.list_models, provider=provider_value, client_config=cfg
-                ),
+                functools.partial(llm_class.list_models, client_config=client_cfg_from_panel),
                 thread=True,
                 group="model_listing",
             )
             listed = await worker.wait()
             if worker.is_cancelled:
-                error = "Model loading cancelled."
+                error = "Model loading cancelled by worker."
+        except WorkerCancelled:
+            error = "Model loading cancelled."
         except Exception as e:
-            logger.error(f"ChatView: Error listing models: {e}", exc_info=True)
+            logger.error(f"ChatView: Error listing models for {provider_value}: {e}", exc_info=True)
             error = f"Failed to list models: {e.__class__.__name__}: {str(e)[:60]}"
-
         panel.set_model_select_loading(False)
-
+        determined_model_for_panel: Optional[str] = None
+        current_status_after_listing = "Models loaded"
         if error:
             panel.update_models_list([], error)
-            panel.model = None
             self._log_chat_message(self.ROLE_SYSTEM, error)
-            self._update_chat_status_line(status="Model list error")
-            return
-
-        options = [(m, m) for m in listed]
-        panel.update_models_list(options, "Select Model")
-
-        # pick sensible defaults per‐provider
-        default: Optional[str] = None
-        if provider_value == "ollama":
-            for cand in ["llama2", "mistral"]:
-                if cand in listed:
-                    default = cand
-                    break
-        elif provider_value == "openai":
-            for cand in ["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o"]:
-                if cand in listed:
-                    default = cand
-                    break
-        elif provider_value in ("google", "google_vertex"):
-            for cand in ["gemini-1.5-pro", "gemini-1.5-flash-latest"]:
-                if cand in listed:
-                    default = cand
-                    break
-
-        if default is None and listed:
-            default = listed[0]
-        if default:
-            panel.model = default
-
-        self._update_chat_status_line(status="Models loaded")
+            current_status_after_listing = "Model list error"
+            if panel.model is not None:
+                panel.model = None
+            else:
+                determined_model_for_panel = None
+        else:
+            options = [(m, m) for m in listed]
+            prompt_if_empty = "No models found for this provider." if not listed else "Select Model"
+            panel.update_models_list(options, prompt_if_empty)
+            current_status_after_listing = "Models loaded" if listed else "No models found"
+            if listed:
+                default: Optional[str] = None
+                if provider_value == "ollama":
+                    preferred_ollama = ["gemma3:4b", "qwen3:8b"]
+                    for p_base in preferred_ollama:
+                        if p_base in listed:
+                            default = p_base
+                            break
+                        if default is None:
+                            for model_with_tag in listed:
+                                if model_with_tag.startswith(p_base + ":"):
+                                    default = model_with_tag
+                                    break
+                        if default:
+                            break
+                elif provider_value == "openai":
+                    preferred_openai = ["gpt-4.1-nano", "gpt-4.1-mini"]
+                    for p in preferred_openai:
+                        if p in listed:
+                            default = p
+                            break
+                elif provider_value == "google":
+                    preferred_google = ["gemini-2.0-flash", "gemini-1.5-flash"]
+                    for p in preferred_google:
+                        if p in listed:
+                            default = p
+                            break
+                if default is None and listed:
+                    default = listed[0]
+                determined_model_for_panel = default
+                if panel.model != determined_model_for_panel:
+                    panel.model = determined_model_for_panel
+            else:
+                if panel.model is not None:
+                    panel.model = None
+                else:
+                    determined_model_for_panel = None
+        self._update_chat_status_line(status=current_status_after_listing)
+        logger.info(
+            f"ChatView: _load_models_for_provider determined model for panel: '{panel.model}'. Directly processing this model."
+        )
+        await self.handle_model_change_from_llm_config_panel(
+            LLMConfigPanel.ModelChanged(panel.model)
+        )
 
     @on(LLMConfigPanel.ModelChanged)
     async def handle_model_change_from_llm_config_panel(
         self, event: LLMConfigPanel.ModelChanged
     ) -> None:
         model_value = event.model
-        logger.info(f"ChatView: ModelChanged event with model: {model_value}")
+        logger.info(
+            f"ChatView: handle_model_change_from_llm_config_panel received ModelChanged event with model: {model_value}"
+        )
         if model_value:
             self._reset_chat_log_and_status(f"Model set to: {model_value}. Session reset.")
             try:
@@ -228,43 +301,79 @@ class ChatView(Container):
                 self._log_chat_message(self.ROLE_SYSTEM, "Session ready. LLM client configured.")
                 self._update_chat_status_line(status="Ready")
             else:
-                self._log_chat_message(self.ROLE_SYSTEM, "Client Error")
+                self._log_chat_message(
+                    self.ROLE_SYSTEM,
+                    "Client configuration error for selected model. Check logs for details.",
+                )
                 self._update_chat_status_line(status="Client Error")
             self.focus_default_widget()
         else:
             self.llm_client_instance = None
-            self._log_chat_message(self.ROLE_SYSTEM, "Model deselected. LLM client cleared.")
+            self._reset_chat_log_and_status("No model selected or available.")
+            self._log_chat_message(
+                self.ROLE_SYSTEM, "Model deselected or unavailable. LLM client cleared."
+            )
             self._update_chat_status_line(status="Select model")
 
     def _create_and_set_llm_client(self) -> bool:
+        logger.debug("ChatView: Attempting _create_and_set_llm_client")
         try:
             panel = self.query_one(LLMConfigPanel)
         except NoMatches:
-            logger.error("ChatView: LLMConfigPanel not found.")
+            logger.error("ChatView: LLMConfigPanel not found during client creation.")
             self._log_chat_message(self.ROLE_SYSTEM, "LLM Configuration panel not found.")
             return False
-
         cfg = panel.get_llm_config()
         provider = cfg.get("provider_hint")
-        model = cfg.get("model_name")
-        if not provider or not model:
-            self._log_chat_message(self.ROLE_SYSTEM, "Provider or model not selected.")
+        model_name = cfg.get("model_name")
+        logger.debug(
+            f"ChatView: _create_and_set_llm_client using provider='{provider}', model_name='{model_name}' from panel config."
+        )
+        if not provider or not model_name:
+            self._log_chat_message(
+                self.ROLE_SYSTEM, "Provider or model not properly selected for client creation."
+            )
+            logger.warning(
+                f"ChatView: Client creation skipped. Provider='{provider}', Model='{model_name}'"
+            )
             return False
-
-        extra = cfg.copy()
-        extra.pop("provider_hint", None)
-        extra.pop("model_name", None)
-
+        llm_class = self.PROVIDER_CLASSES.get(provider)
+        if not llm_class:
+            self._log_chat_message(
+                self.ROLE_SYSTEM, f"Unknown provider '{provider}' for client creation."
+            )
+            logger.error(f"ChatView: Unknown provider '{provider}' found during client creation.")
+            return False
+        client_kwargs = {"model_name": model_name}
+        temperature = cfg.get("temperature")
+        if provider == "ollama":
+            client_kwargs["options"] = {}
+            if temperature is not None:
+                client_kwargs["options"]["temperature"] = temperature
+        elif provider == "openai":
+            if temperature is not None:
+                client_kwargs["temperature"] = temperature
+        elif provider == "google":
+            if temperature is not None:
+                client_kwargs["generation_config"] = {"temperature": temperature}
+        logger.debug(
+            f"ChatView: Instantiating LLM class '{llm_class.__name__}' with kwargs: {client_kwargs}"
+        )
         try:
-            client = LiteLLMChat(model_name=model, provider_hint=provider, **extra)
-            self.llm_client_instance = client
-            logger.info(f"ChatView: LLM client created for {provider}:{model}")
+            new_client = llm_class(**client_kwargs)
+            self.llm_client_instance = new_client
+            logger.info(f"ChatView: LLM client successfully created for {provider}:{model_name}.")
             return True
         except Exception as e:
-            logger.error(f"ChatView: Failed to create LLM client: {e}", exc_info=True)
-            self._log_chat_message(
-                self.ROLE_SYSTEM, f"Error creating LLM client: {e.__class__.__name__}"
+            logger.error(
+                f"ChatView: Failed to create LLM client for {provider}:{model_name}. KWARGS: {client_kwargs}. Error: {e}",
+                exc_info=True,
             )
+            self._log_chat_message(
+                self.ROLE_SYSTEM,
+                f"Error creating LLM client for '{model_name}': {e.__class__.__name__} - {str(e)[:100]}. See console log for full traceback.",
+            )
+            self.llm_client_instance = None
             return False
 
     def _get_effective_history_for_llm(self) -> List[Dict[str, str]]:
@@ -274,73 +383,79 @@ class ChatView(Container):
             max_hist = panel.max_history_messages
             if max_hist == -1:
                 return []
-            if max_hist > 0 and len(hist) > max_hist:
+            if max_hist is not None and max_hist > 0 and len(hist) > max_hist:
                 return hist[-max_hist:]
         except NoMatches:
-            pass
+            logger.warning("LLMConfigPanel not found in _get_effective_history_for_llm")
         return hist
 
     async def _send_user_message(self) -> None:
+        logger.debug(
+            f"ChatView: _send_user_message called. LLM client is {'SET' if self.llm_client_instance else 'None'}."
+        )
         try:
             input_widget = self.query_one("#chat_message_input", Input)
         except NoMatches:
             await self.app.push_screen(ErrorDialog("UI Error", "Chat input field not found."))
             return
-
         if not self.llm_client_instance:
-            await self.app.push_screen(ErrorDialog("LLM Error", "LLM not configured."))
+            logger.warning("ChatView: Send attempt while llm_client_instance is None.")
+            await self.app.push_screen(
+                ErrorDialog("LLM Error", "LLM not configured. Please select a provider and model.")
+            )
             return
-
         user_text = input_widget.value.strip()
         if not user_text:
             return
-
         send_btn = self.query_one("#send_chat_message_button", Button)
         stop_btn = self.query_one("#stop_chat_message_button", Button)
-
         self._log_chat_message(self.ROLE_USER, user_text)
         self.chat_history.append({"role": self.ROLE_USER, "content": user_text})
-
-        history = self._get_effective_history_for_llm()
-        if history and history[-1]["role"] == self.ROLE_USER:
-            history = history[:-1]
-
+        history_for_llm = self._get_effective_history_for_llm()
+        if (
+            history_for_llm
+            and history_for_llm[-1]["content"] == user_text
+            and history_for_llm[-1]["role"] == self.ROLE_USER
+        ):
+            history_for_llm = history_for_llm[:-1]
         input_widget.value = ""
         input_widget.disabled = True
         send_btn.disabled = True
         stop_btn.disabled = False
         self._update_chat_status_line(status="Sending...")
-
         client = self.llm_client_instance
-        task = functools.partial(client.send_message, message=user_text, history=history)
-
+        task = functools.partial(client.send_message, message=user_text, history=history_for_llm)
         if self.current_llm_worker and self.current_llm_worker.state == WorkerState.RUNNING:
             self.current_llm_worker.cancel()
-
         self.current_llm_worker = self.app.run_worker(task, thread=True, group="llm_call")
-
         try:
             ai_response = await self.current_llm_worker.wait()
             if self.current_llm_worker.state == WorkerState.SUCCESS:
-                self._log_chat_message(self.ROLE_AI, ai_response)
-                self.chat_history.append({"role": self.ROLE_AI, "content": ai_response})
+                clean_response = ai_response.strip() if isinstance(ai_response, str) else ""
+                self._log_chat_message(self.ROLE_AI, clean_response)
+                self.chat_history.append({"role": self.ROLE_AI, "content": clean_response})
         except WorkerFailed as wf:
-            err = wf.error
-            self._log_chat_message(self.ROLE_SYSTEM, f"LLM Error: {err}")
-            logger.error(f"LLM WorkerFailed: {err}", exc_info=True)
+            err_msg = str(wf.error) if wf.error else "LLM call failed with no specific error."
+            self._log_chat_message(self.ROLE_SYSTEM, f"LLM Error: {err_msg}")
+            logger.error(f"LLM WorkerFailed: {wf.error}", exc_info=True)
         except WorkerCancelled:
             self._log_chat_message(self.ROLE_SYSTEM, "LLM call stopped by user.")
         except Exception as e:
             logger.error(f"Unexpected error during LLM call: {e}", exc_info=True)
-            self._log_chat_message(self.ROLE_SYSTEM, f"Unexpected error: {e}")
+            self._log_chat_message(self.ROLE_SYSTEM, f"Unexpected error: {e!s}")
         finally:
             self.current_llm_worker = None
             if self.is_mounted:
-                input_widget.disabled = False
-                send_btn.disabled = False
-                stop_btn.disabled = True
-                self._update_chat_status_line(status="Ready")
-                input_widget.focus()
+                try:
+                    input_widget.disabled = False
+                    send_btn.disabled = False
+                    stop_btn.disabled = True
+                    self._update_chat_status_line(status="Ready")
+                    input_widget.focus()
+                except Exception as e_finally:
+                    logger.error(
+                        f"Error in _send_user_message finally block: {e_finally}", exc_info=True
+                    )
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
@@ -356,57 +471,211 @@ class ChatView(Container):
     async def _get_active_collection_schema_for_injection(self) -> Optional[str]:
         coll = self.app.active_collection
         if not (self.app.current_mongo_uri and self.app.current_db_name and coll):
-            self.app.notify("No active DB connection or collection.", severity="warning")
+            self.app.notify(
+                "No active DB connection or collection selected to inject schema.",
+                title="Schema Injection Info",
+                severity="warning",
+            )
             return None
-
-        cached = getattr(self.app, "current_schema_analysis_results", {}) or {}
-        if cached.get("collection_name") == coll and "hierarchical_schema" in cached:
-            schema = cached["hierarchical_schema"]
+        cached_schema_info = self.app.current_schema_analysis_results
+        schema_to_inject: Optional[Dict] = None
+        if (
+            isinstance(cached_schema_info, dict)
+            and cached_schema_info.get("collection_name") == coll
+            and "hierarchical_schema" in cached_schema_info
+        ):
+            schema_to_inject = cached_schema_info["hierarchical_schema"]
+            logger.info(f"Using cached schema for '{coll}' for injection.")
         else:
+            logger.info(
+                f"No cached schema for '{coll}' or cache mismatch. Fetching live schema for injection."
+            )
+            self.app.notify(f"Fetching schema for '{coll}' to inject...", title="Schema Injection")
             try:
                 if not core_db_manager.db_connection_active(
                     uri=self.app.current_mongo_uri,
                     db_name=self.app.current_db_name,
+                    force_reconnect=False,
+                    server_timeout_ms=2000,
                 ):
-                    raise ConnectionError("DB connection lost before fetching schema.")
-                col = SchemaAnalyser.get_collection(
-                    self.app.current_mongo_uri,
-                    self.app.current_db_name,
-                    coll,
+                    if not core_db_manager.db_connection_active(
+                        uri=self.app.current_mongo_uri,
+                        db_name=self.app.current_db_name,
+                        force_reconnect=True,
+                        server_timeout_ms=3000,
+                    ):
+                        raise ConnectionError(
+                            "DB connection lost or could not be re-established before fetching schema."
+                        )
+                pymongo_collection = SchemaAnalyser.get_collection(
+                    self.app.current_mongo_uri, self.app.current_db_name, coll
                 )
-                schema_data, _ = SchemaAnalyser.infer_schema_and_field_stats(col, sample_size=100)
-                schema = SchemaAnalyser.schema_to_hierarchical(schema_data)
+                analysis_task = functools.partial(
+                    SchemaAnalyser.infer_schema_and_field_stats,
+                    collection=pymongo_collection,
+                    sample_size=100,
+                )
+                worker: Worker[Tuple[Dict, Dict]] = self.app.run_worker(
+                    analysis_task, thread=True, group="schema_injection_fetch"
+                )
+                schema_data, _ = await worker.wait()
+                if worker.is_cancelled:
+                    self.app.notify(
+                        f"Schema fetch for '{coll}' cancelled.",
+                        title="Schema Injection",
+                        severity="warning",
+                    )
+                    return None
+                if not schema_data:
+                    self.app.notify(
+                        f"No schema data returned for '{coll}'. Cannot inject.",
+                        title="Schema Injection Error",
+                        severity="error",
+                    )
+                    return None
+                schema_to_inject = SchemaAnalyser.schema_to_hierarchical(schema_data)
+            except ConnectionError as ce:
+                logger.error(
+                    f"DB Connection error fetching schema for injection: {ce}", exc_info=True
+                )
+                await self.app.push_screen(
+                    ErrorDialog("DB Connection Error", f"Could not connect to fetch schema: {ce}")
+                )
+                return None
+            except WorkerCancelled:
+                self.app.notify(
+                    f"Schema fetch for '{coll}' was cancelled by worker.",
+                    title="Schema Injection",
+                    severity="warning",
+                )
+                return None
             except Exception as e:
                 logger.error(f"Error fetching schema for injection: {e}", exc_info=True)
-                await self.app.push_screen(ErrorDialog("Schema Fetch Error", str(e)))
+                await self.app.push_screen(
+                    ErrorDialog("Schema Fetch Error", f"Could not fetch schema for '{coll}': {e!s}")
+                )
                 return None
-
+        if schema_to_inject is None:
+            self.app.notify(
+                f"Could not obtain schema for '{coll}'.", title="Schema Injection", severity="error"
+            )
+            return None
         try:
-            return json.dumps(schema, indent=2, default=str)
+            return json.dumps(schema_to_inject, indent=2, default=str)
         except TypeError:
-            return str(schema)
+            logger.error(
+                f"Schema for '{coll}' is not JSON serializable for injection, even with default=str."
+            )
+            return str(schema_to_inject)
 
     async def _inject_schema_into_input(self) -> None:
         coll = self.app.active_collection
         if not coll:
-            self.app.notify("No active collection selected.", severity="warning")
+            self.app.notify(
+                "No active collection selected to inject schema.",
+                title="Schema Injection Info",
+                severity="warning",
+            )
             return
 
         schema_str = await self._get_active_collection_schema_for_injection()
-        if not schema_str:
-            return
+        if schema_str is None:
+            return  # Error/notification already handled by _get_active_collection_schema_for_injection
 
         try:
             inp = self.query_one("#chat_message_input", Input)
-            prefix = f"CONTEXT: MongoDB schema for '{coll}':\n```json\n{schema_str}\n```\n\n"
-            inp.value = prefix + inp.value
+            current_val = inp.value
+
+            # Define the new prefix block for the current schema
+            new_schema_prefix_block = (
+                f"{self.SCHEMA_INJECT_START_MARKER_BASE}{coll}' is as follows:\n"
+                f"```json\n{schema_str}{self.SCHEMA_INJECT_END_MARKER}"
+            )
+
+            # Regex to find an existing injected schema block
+            # It looks for the start marker, captures the collection name, then any characters (non-greedy)
+            # up to the JSON triple backticks, then the JSON content (non-greedy),
+            # then the closing triple backticks and the end marker.
+            # This regex is a bit complex due to needing to match varying collection names and JSON.
+            # A simpler string search for start and end markers might be more robust if schema content itself is not matched.
+
+            # Simpler approach: find the start and end markers of any existing block
+            # Start marker: "CONTEXT: The MongoDB schema for the collection '"
+            # End marker for the *entire block*: "\n\nBased on this schema, " (which is part of new_schema_prefix_block)
+
+            text_after_any_previous_schema = (
+                current_val  # Default to all current text if no old schema found
+            )
+
+            # Check if an old schema block exists
+            # We look for "CONTEXT: The MongoDB schema for the collection '"
+            # and then find where that block logically ends ("\n```\n\nBased on this schema, ")
+            # This will allow us to replace it.
+
+            # Find a pattern that matches any previously injected block precisely enough.
+            # Example: "CONTEXT: The MongoDB schema for the collection 'some_coll_name' is as follows:\n```json\n{...}\n```\n\nBased on this schema, "
+            # The varying parts are 'some_coll_name' and {...}
+            # We can use a regex or simpler string splitting.
+
+            # Using string splitting for simplicity and robustness:
+            # Check if current_val starts with the base marker
+            if current_val.startswith(self.SCHEMA_INJECT_START_MARKER_BASE):
+                # Try to find the end of the JSON block and the trailing "Based on this schema, "
+                # The end marker for the JSON part of the prefix is self.SCHEMA_INJECT_END_MARKER
+                # The full end of the prefix block we want to replace is new_schema_prefix_block minus schema_str and coll_name.
+
+                # Let's find the first occurrence of "\n\nBased on this schema, " which signifies the end of our injected context
+                end_of_context_marker_for_stripping = "\n\nBased on this schema, "
+                try:
+                    # Find where the old injected context ends and the user's actual message begins
+                    idx_after_old_context = current_val.index(
+                        end_of_context_marker_for_stripping
+                    ) + len(end_of_context_marker_for_stripping)
+                    text_after_any_previous_schema = current_val[idx_after_old_context:]
+                    logger.debug(
+                        f"Found existing schema context. User text after it: '{text_after_any_previous_schema}'"
+                    )
+                except ValueError:
+                    # The end marker wasn't found, meaning the user might have altered the injected text.
+                    # In this case, it's safer to just prepend to whatever is there,
+                    # or decide to replace the whole thing if it starts with the marker.
+                    # For now, if it starts with marker but end is broken, we'll just prepend to original (might duplicate start_marker part).
+                    # A better strategy might be to replace the whole input if it starts with marker but is mangled.
+                    logger.debug(
+                        "Existing schema context start marker found, but end marker is missing/altered. Prepending to original content."
+                    )
+                    text_after_any_previous_schema = current_val  # Fallback to using the whole current_val if structure is broken
+                    # To avoid duplicating the start marker if it's mangled, we could clear inp.value here if current_val.startswith(self.SCHEMA_INJECT_START_MARKER_BASE)
+                    # For this fix, let's ensure it doesn't heavily duplicate if only end part is missing:
+                    if current_val.startswith(
+                        self.SCHEMA_INJECT_START_MARKER_BASE
+                    ):  # if structure is broken but starts like a schema
+                        text_after_any_previous_schema = (
+                            ""  # Discard potentially broken prefix and user query after it
+                        )
+                        self._log_chat_message(
+                            self.ROLE_SYSTEM,
+                            "Existing schema context was altered. Replacing with new schema.",
+                        )
+
+            # Construct the new value
+            inp.value = (
+                new_schema_prefix_block + text_after_any_previous_schema.lstrip()
+            )  # lstrip to remove leading space from user text
+
             inp.focus()
+            inp.action_end()  # Move cursor to the end
             self._log_chat_message(
                 self.ROLE_SYSTEM,
-                f"Schema for '{coll}' injected into input.",
+                f"Schema for collection '{coll}' has been prepared and added to your message input. You can now ask questions about it or use it in your query.",
             )
+            self.app.notify(
+                f"Schema for '{coll}' injected/updated in input.", title="Schema Injected"
+            )
+
         except NoMatches:
             logger.error("Chat input widget not found for schema injection.")
+            self.app.notify("Chat input field not found.", title="UI Error", severity="error")
 
     @on(LLMConfigPanel.NewSessionRequested)
     async def handle_new_session_requested_from_llm_config_panel(
@@ -418,36 +687,36 @@ class ChatView(Container):
         except NoMatches:
             await self.app.push_screen(ErrorDialog("UI Error", "LLM Config panel not found."))
             return
-
-        if not panel.provider or not panel.model:
+        current_model_on_panel = panel.model
+        if not panel.provider or not current_model_on_panel:
             self._reset_chat_log_and_status("Select provider and model first.")
-            self._update_chat_status_line(status="Needs config")
             await self.app.push_screen(
                 ErrorDialog(
                     "Configuration Incomplete",
-                    "Please select a provider and model.",
+                    "Please select a provider and model before starting a new session.",
                 )
             )
             return
-
         self._reset_chat_log_and_status("New session started. LLM (re)configuring...")
         try:
             self.query_one("#chat_message_input", Input).value = ""
         except NoMatches:
             pass
-
         if self._create_and_set_llm_client():
-            self._log_chat_message(
-                self.ROLE_SYSTEM,
-                "LLM client (re)configured for new session.",
-            )
+            self._log_chat_message(self.ROLE_SYSTEM, "LLM client (re)configured for new session.")
             self._update_chat_status_line(status="Ready")
         else:
-            self._log_chat_message(self.ROLE_SYSTEM, "Client Error")
+            self._log_chat_message(
+                self.ROLE_SYSTEM, "Client Error during new session setup. Check logs."
+            )
             self._update_chat_status_line(status="Client Error")
-
         self.focus_default_widget()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "chat_message_input":
-            await self._send_user_message()
+            try:
+                send_button = self.query_one("#send_chat_message_button", Button)
+                if not send_button.disabled:
+                    await self._send_user_message()
+            except NoMatches:
+                logger.error("Send button not found on input submission.")
