@@ -1,11 +1,11 @@
-import csv
-import json
 import logging
 import uuid
 from collections import Counter, OrderedDict
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+
+# from pathlib import Path # No longer needed
+# import csv # No longer needed
+from typing import Any, Dict, List, Optional, Tuple, Union  # Keep Union for type hints
 
 from bson import Binary, Decimal128, Int64, ObjectId
 from pymongo.errors import (
@@ -154,7 +154,6 @@ class SchemaAnalyser:
         full_key: str,
         is_array_element: bool,
     ) -> None:
-        # ensure base stats keys exist
         stats_dict_to_update.setdefault("values", set())
         stats_dict_to_update.setdefault("type_counts", Counter())
         stats_dict_to_update.setdefault("numeric_min", float("inf"))
@@ -163,7 +162,6 @@ class SchemaAnalyser:
         stats_dict_to_update.setdefault("date_max", None)
         stats_dict_to_update.setdefault("value_frequencies", Counter())
 
-        # determine type name
         if isinstance(value, ObjectId):
             value_type_name = "binary<ObjectId>"
         elif isinstance(value, uuid.UUID):
@@ -336,34 +334,3 @@ class SchemaAnalyser:
                 cur = cur.setdefault(p, {})
             cur[parts[-1]] = {"type": details.get("type")}
         return hierarchical
-
-    @staticmethod
-    def save_schema_to_json(schema: Dict, schema_file: Union[str, Path]) -> None:
-        hierarchical = SchemaAnalyser.schema_to_hierarchical(schema)
-        output_path = Path(schema_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with output_path.open("w", encoding="utf-8") as f:
-                json.dump(hierarchical, f, indent=4)
-            logger.info(f"Schema has been saved to {output_path}")
-            print(f"Schema has been saved to {output_path}")
-        except IOError as e:
-            logger.error(f"Failed to save schema to {output_path}: {e}")
-            print(f"Error: Could not save schema to {output_path}.")
-
-    @staticmethod
-    def save_table_to_csv(
-        headers: List[str], rows: List[List[Any]], csv_file: Union[str, Path]
-    ) -> None:
-        output_path = Path(csv_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with output_path.open(mode="w", newline="", encoding="utf-8") as file:
-                writer = csv.writer(file)
-                writer.writerow(headers)
-                writer.writerows(rows)
-            logger.info(f"Table has been saved to {output_path}")
-            print(f"Table has been saved to {output_path}")
-        except IOError as e:
-            logger.error(f"Failed to save CSV to {output_path}: {e}")
-            print(f"Error: Could not save table to {output_path}.")

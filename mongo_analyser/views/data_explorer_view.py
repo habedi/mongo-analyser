@@ -1,6 +1,7 @@
 import json
 import logging
 from functools import partial
+from pathlib import Path
 from typing import Any, Dict, List
 
 from rich.text import Text
@@ -31,17 +32,17 @@ class DataExplorerView(Container):
         width: 100%;
         margin-bottom: 1;
     }
-    DataExplorerView > Input {
+    DataExplorerView > Input { /* Applies to sample size and save path */
         width: 100%;
         margin-bottom: 1;
     }
-    DataExplorerView > Button {
+    DataExplorerView > Button { /* Applies to fetch, save, copy buttons */
         width: 100%;
         margin-bottom: 1;
     }
     DataExplorerView #document_display_area {
         margin-top: 1;
-        height: 25;
+        height: 20; /* Adjusted height to make space for new widgets */
         border: round $primary-darken-1;
         background: $primary-background-darken-3;
         padding: 1;
@@ -64,19 +65,51 @@ class DataExplorerView(Container):
         padding: 0 1;
         text-align: center;
     }
-    DataExplorerView #data_explorer_status {
+    DataExplorerView #data_explorer_status { /* Main status for fetching */
         margin-top: 1;
+        height: auto; /* Allow wrapping */
+    }
+    DataExplorerView #data_explorer_feedback_label { /* For copy/save feedback */
+        width: 100%;
+        text-align: center;
+        height: 1;
+        margin-top: 1;
+        color: $success; /* Default to success, can be changed */
+    }
+    DataExplorerView .action_button_group {
+        layout: horizontal;
         height: auto;
+        width: 100%;
+        align: center middle;
+        margin-top: 1;
+    }
+    DataExplorerView .action_button_group Button {
+        width: 1fr;
+        margin: 0 1; /* Add horizontal margin between buttons */
+    }
+    /* Ensure the last button in a group doesn't have right margin if not needed */
+    DataExplorerView .action_button_group Button:last-child {
+        margin-right: 0;
     }
     """
 
     sample_documents: reactive[List[Dict[str, Any]]] = reactive([])
     current_document_index: reactive[int] = reactive(0)
     status_message = reactive(Text("Select a collection and fetch documents."))
+    feedback_message = reactive(Text(""))  # For copy/save operations
+
+    def _get_default_sample_save_path(self) -> str:
+        db_name = self.app.current_db_name
+        collection_name = self.app.active_collection
+        if db_name and collection_name:
+            return f"output/{db_name}/{collection_name}_sample_docs.json"
+        if collection_name:
+            return f"output/{collection_name}_sample_docs.json"
+        return "output/default_sample_docs.json"
 
     def on_mount(self) -> None:
         self._last_collections: List[str] = []
-        self.update_collection_select()
+        self.update_collection_select()  # This will also set initial save path
         self._update_doc_nav_buttons_and_label()
 
     def compose(self) -> ComposeResult:
@@ -91,12 +124,23 @@ class DataExplorerView(Container):
         yield Input(id="data_explorer_sample_size_input", value="10", placeholder="e.g., 10")
         yield Button("Fetch Sample Documents", id="fetch_documents_button", variant="primary")
         yield Static(self.status_message, id="data_explorer_status")
+
         with Horizontal(id="document_navigation"):
             yield Button("Previous", id="prev_doc_button", disabled=True)
             yield Label("Doc 0 of 0", id="doc_nav_label")
             yield Button("Next", id="next_doc_button", disabled=True)
+
         with VerticalScroll(id="document_display_area"):
             yield Markdown("```json\n{}\n```", id="document_json_view")
+
+        with Horizontal(classes="action_button_group"):
+            yield Button("Copy Current Doc", id="copy_current_doc_button")
+            yield Button("Copy All Sampled Docs", id="copy_all_docs_button")
+
+        yield Label("Save Sampled Documents Path:", classes="panel_title_small")
+        yield Input(id="sample_docs_save_path_input", value=self._get_default_sample_save_path())
+        yield Button("Save All Sampled Docs to File", id="save_sample_docs_button")
+        yield Static(self.feedback_message, id="data_explorer_feedback_label")
 
     def focus_default_widget(self) -> None:
         try:
@@ -107,48 +151,88 @@ class DataExplorerView(Container):
     def update_collection_select(self) -> None:
         try:
             select_widget = self.query_one("#data_explorer_collection_select", Select)
+            save_path_input = self.query_one("#sample_docs_save_path_input", Input)
+
             collections = self.app.available_collections
-            if collections == self._last_collections:
+            if collections == self._last_collections:  # Avoid unnecessary updates
+                # Still update save path if active collection changed through other means
+                current_active_coll = (
+                    str(select_widget.value)
+                    if select_widget.value != Select.BLANK
+                    else self.app.active_collection
+                )
+                save_path_input.value = self._get_path_for_collection_output(current_active_coll)
                 return
-            self._last_collections = list(collections)
+
+            self._last_collections = list(collections)  # Cache the new list
+
             if collections:
                 options = [(c, c) for c in collections]
+                current_value = select_widget.value
                 select_widget.set_options(options)
                 select_widget.disabled = False
                 select_widget.prompt = "Select Collection"
-                if (
-                    self.app.active_collection in collections
-                    and select_widget.value != self.app.active_collection
-                ):
-                    select_widget.value = self.app.active_collection
-            else:
+
+                active_app_coll = self.app.active_collection
+                if active_app_coll in collections:
+                    select_widget.value = active_app_coll
+                elif current_value in collections:  # Fallback to previous valid selection
+                    select_widget.value = current_value
+                else:  # No valid previous or app active collection, set to blank or first
+                    select_widget.value = Select.BLANK  # Or options[0][1] if you prefer a default
+
+            else:  # No collections
                 select_widget.set_options([])
                 select_widget.prompt = "Connect to DB to see collections"
                 select_widget.disabled = True
                 select_widget.value = Select.BLANK
-            self.sample_documents = []
-        except NoMatches:
-            logger.warning(
-                "DataExplorerView: #data_explorer_collection_select not found for update."
+
+            # Update save path based on the (potentially new) selection
+            current_selected_coll = (
+                str(select_widget.value) if select_widget.value != Select.BLANK else None
             )
+            save_path_input.value = self._get_path_for_collection_output(
+                current_selected_coll or self.app.active_collection
+            )
+            self.sample_documents = []  # Clear documents when collection list changes
+            self.status_message = Text("Select a collection and fetch documents.")
+
+        except NoMatches:
+            logger.warning("DataExplorerView: Select or save path input not found for update.")
         except Exception as e:
             logger.error(f"Error in DataExplorerView.update_collection_select: {e}", exc_info=True)
+
+    def _get_path_for_collection_output(self, collection_name: str | None) -> str:
+        db_name = self.app.current_db_name
+        if db_name and collection_name:
+            return f"output/{db_name}/{collection_name}_sample_docs.json"
+        if collection_name:
+            return f"output/{collection_name}_sample_docs.json"
+        return "output/default_sample_docs.json"
 
     @on(Select.Changed, "#data_explorer_collection_select")
     def on_collection_changed_de(self, event: Select.Changed) -> None:
         new_coll = str(event.value) if event.value != Select.BLANK else None
-        if new_coll == self.app.active_collection:
-            return
-        self.app.active_collection = new_coll
-        self.sample_documents = []
-        self.status_message = Text("Collection changed. Fetch new documents.")
+        if new_coll != self.app.active_collection:  # Update app state only if truly changed
+            self.app.active_collection = new_coll
+
+        # Update save path input based on new selection
+        try:
+            save_path_input = self.query_one("#sample_docs_save_path_input", Input)
+            save_path_input.value = self._get_path_for_collection_output(new_coll)
+        except NoMatches:
+            logger.warning("DataExplorerView: Save path input not found during collection change.")
+
+        self.sample_documents = []  # Clear existing samples
+        self.status_message = Text("Collection changed. Fetch new sample documents.")
+        self.feedback_message = Text("")  # Clear old feedback
 
     @on(Button.Pressed, "#fetch_documents_button")
     async def fetch_documents_button_pressed(self) -> None:
         uri = self.app.current_mongo_uri
         db_name = self.app.current_db_name
+        self.feedback_message = Text("")  # Clear previous feedback
 
-        # find out which collection is selected…
         try:
             sel = self.query_one("#data_explorer_collection_select", Select)
             collection_name = None if sel.value == Select.BLANK else str(sel.value)
@@ -165,23 +249,33 @@ class DataExplorerView(Container):
             )
             return
 
-        # parse sample size…
         try:
             inp = self.query_one("#data_explorer_sample_size_input", Input)
-            sample_size = int(inp.value)
+            sample_size_str = inp.value.strip()
+            if not sample_size_str:
+                await self.app.push_screen(
+                    ErrorDialog("Input Error", "Sample size cannot be empty.")
+                )
+                return
+            sample_size = int(sample_size_str)
             if sample_size <= 0:
-                raise ValueError("non-positive")
-        except Exception:
-            await self.app.push_screen(ErrorDialog("Input Error", "Invalid sample size."))
+                await self.app.push_screen(
+                    ErrorDialog("Input Error", "Sample size must be a positive integer.")
+                )
+                return
+        except ValueError:
+            await self.app.push_screen(
+                ErrorDialog("Input Error", "Invalid sample size. Must be an integer.")
+            )
+            return
+        except NoMatches:
+            await self.app.push_screen(ErrorDialog("Error", "Sample size input widget not found."))
             return
 
         self.status_message = Text(f"Fetching documents from '{collection_name}'…")
-        # clear any previous docs
         self.sample_documents = []
 
         try:
-            # **FIX**: wrap your target in partial() so run_worker only ever
-            # sees one positional argument and your group kwarg appears once.
             worker: Worker[List[Dict[str, Any]]] = self.app.run_worker(
                 partial(
                     get_newest_documents,
@@ -208,7 +302,7 @@ class DataExplorerView(Container):
             self.status_message = Text("Document fetching cancelled during operation.")
         except Exception as e:
             logger.error(f"Error fetching documents: {e}", exc_info=True)
-            self.status_message = Text.from_markup(f"[#BF616A]Error: {e}[/]")
+            self.status_message = Text.from_markup(f"[#BF616A]Error: {str(e)[:100]}[/]")
             await self.app.push_screen(ErrorDialog("Fetch Error", str(e)))
 
     def _update_document_view(self) -> None:
@@ -224,7 +318,7 @@ class DataExplorerView(Container):
                 md_view.update("```json\n{}\n```")
         except NoMatches:
             logger.warning("DataExplorerView: Markdown view not found for update.")
-        except IndexError:
+        except IndexError:  # Should ideally not happen if current_document_index is managed well
             logger.warning(
                 "DataExplorerView: current_document_index out of bounds during view update."
             )
@@ -240,7 +334,7 @@ class DataExplorerView(Container):
             next_button = self.query_one("#next_doc_button", Button)
             nav_label = self.query_one("#doc_nav_label", Label)
             total_docs = len(self.sample_documents)
-            if total_docs > 0 and 0 <= self.current_document_index < total_docs:
+            if total_docs > 0:  # current_document_index is 0-based
                 nav_label.update(f"Doc {self.current_document_index + 1} of {total_docs}")
                 prev_button.disabled = self.current_document_index <= 0
                 next_button.disabled = self.current_document_index >= total_docs - 1
@@ -255,11 +349,101 @@ class DataExplorerView(Container):
     def previous_document_button_pressed(self) -> None:
         if self.current_document_index > 0:
             self.current_document_index -= 1
+        self.feedback_message = Text("")
 
     @on(Button.Pressed, "#next_doc_button")
     def next_document_button_pressed(self) -> None:
         if self.current_document_index < len(self.sample_documents) - 1:
             self.current_document_index += 1
+        self.feedback_message = Text("")
+
+    @on(Button.Pressed, "#copy_current_doc_button")
+    async def copy_current_doc_to_clipboard(self) -> None:
+        if not self.sample_documents:
+            self.feedback_message = Text.from_markup("[#D08770]No documents loaded to copy.[/]")
+            self.app.notify("No documents to copy.", title="Copy Info", severity="warning")
+            return
+        if not (0 <= self.current_document_index < len(self.sample_documents)):
+            self.feedback_message = Text.from_markup("[#BF616A]Invalid document index.[/]")
+            self.app.notify("Invalid document index.", title="Copy Error", severity="error")
+            return
+
+        try:
+            current_doc = self.sample_documents[self.current_document_index]
+            doc_json_str = json.dumps(current_doc, indent=2, default=str)
+            self.app.copy_to_clipboard(doc_json_str)
+            self.feedback_message = Text.from_markup(
+                "[#A3BE8C]Current document copied to clipboard![/]"
+            )
+            self.app.notify("Current document copied.", title="Copy Success")
+        except Exception as e:
+            logger.error(f"Error copying current document: {e}", exc_info=True)
+            self.feedback_message = Text.from_markup(
+                f"[#BF616A]Error copying document: {str(e)[:50]}[/]"
+            )
+            await self.app.push_screen(ErrorDialog("Copy Error", f"Could not copy document: {e!s}"))
+
+    @on(Button.Pressed, "#copy_all_docs_button")
+    async def copy_all_docs_to_clipboard(self) -> None:
+        if not self.sample_documents:
+            self.feedback_message = Text.from_markup("[#D08770]No documents loaded to copy.[/]")
+            self.app.notify("No documents to copy.", title="Copy Info", severity="warning")
+            return
+
+        try:
+            all_docs_json_str = json.dumps(self.sample_documents, indent=2, default=str)
+            self.app.copy_to_clipboard(all_docs_json_str)
+            self.feedback_message = Text.from_markup(
+                f"[#A3BE8C]All {len(self.sample_documents)} sampled documents copied![/]"
+            )
+            self.app.notify(
+                f"All {len(self.sample_documents)} documents copied.", title="Copy Success"
+            )
+        except Exception as e:
+            logger.error(f"Error copying all documents: {e}", exc_info=True)
+            self.feedback_message = Text.from_markup(
+                f"[#BF616A]Error copying documents: {str(e)[:50]}[/]"
+            )
+            await self.app.push_screen(
+                ErrorDialog("Copy Error", f"Could not copy documents: {e!s}")
+            )
+
+    @on(Button.Pressed, "#save_sample_docs_button")
+    async def save_all_docs_to_file(self) -> None:
+        save_path_str = ""
+        try:
+            save_path_input = self.query_one("#sample_docs_save_path_input", Input)
+            save_path_str = save_path_input.value.strip()
+        except NoMatches:
+            self.app.notify("Save path input not found.", title="UI Error", severity="error")
+            return
+
+        if not save_path_str:
+            self.feedback_message = Text.from_markup("[#BF616A]Save path cannot be empty.[/]")
+            self.app.notify("Save path empty.", title="Save Error", severity="error")
+            return
+
+        if not self.sample_documents:
+            self.feedback_message = Text.from_markup(
+                "[#D08770]No documents to save. Fetch samples first.[/]"
+            )
+            self.app.notify("No documents to save.", title="Save Info", severity="warning")
+            return
+
+        save_path = Path(save_path_str)
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+            with save_path.open("w", encoding="utf-8") as f:
+                json.dump(self.sample_documents, f, indent=2, default=str)
+            logger.info(f"Sampled documents have been saved to {save_path}")
+            self.feedback_message = Text.from_markup(f"[#A3BE8C]Docs saved to {save_path.name}[/]")
+            self.app.notify(f"Sampled documents saved to {save_path}", title="Save Success")
+        except Exception as e:
+            logger.error(f"Error saving documents to file {save_path}: {e}", exc_info=True)
+            self.feedback_message = Text.from_markup(f"[#BF616A]Error saving: {str(e)[:50]}[/]")
+            await self.app.push_screen(
+                ErrorDialog("Save Error", f"Could not save documents: {e!s}")
+            )
 
     def watch_status_message(self, new_status: Text) -> None:
         if self.is_mounted:
@@ -268,25 +452,36 @@ class DataExplorerView(Container):
             except NoMatches:
                 pass
 
+    def watch_feedback_message(self, new_feedback: Text) -> None:
+        if self.is_mounted:
+            try:
+                feedback_label = self.query_one("#data_explorer_feedback_label", Static)
+                feedback_label.update(new_feedback)
+                if new_feedback.plain:  # If there's a message
+                    # Auto-clear feedback after a few seconds
+                    self.set_timer(4, lambda: setattr(self, "feedback_message", Text("")))
+            except NoMatches:
+                pass
+            except Exception as e:  # Should not happen but good for safety
+                logger.error(f"Error in watch_feedback_message: {e}", exc_info=True)
+
     def watch_sample_documents(
         self,
         old_docs: List[Dict[str, Any]],
         new_docs: List[Dict[str, Any]],
     ) -> None:
-        """Whenever sample_documents changes, reset to doc 0 and redraw everything."""
-        if old_docs != new_docs:
+        if old_docs != new_docs:  # React only on actual change
             logger.debug(
                 f"DataExplorerView: sample_documents changed. "
                 f"Old len: {len(old_docs)}, New len: {len(new_docs)}"
             )
-            # reset to first document
-            self.current_document_index = 0
-
-            # force a UI refresh of the JSON view and nav buttons
+            self.current_document_index = 0  # Reset to first document
             self._update_document_view()
             self._update_doc_nav_buttons_and_label()
+            self.feedback_message = Text("")  # Clear any old feedback on new docs
 
     def watch_current_document_index(self, old_idx: int, new_idx: int) -> None:
         if old_idx != new_idx and self.is_mounted:
             self._update_document_view()
             self._update_doc_nav_buttons_and_label()
+            self.feedback_message = Text("")  # Optionally clear feedback on nav

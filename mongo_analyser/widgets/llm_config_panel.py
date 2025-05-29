@@ -77,18 +77,15 @@ class LLMConfigPanel(VerticalScroll):
         )
 
     def on_mount(self) -> None:
-        # start with Ollama selected, immediately fire off a ProviderChanged
-        self.provider = None
+        self.provider = None  # Initialize to ensure watch_provider fires if initial value is same
         select = self.query_one("#llm_config_provider_select", Select)
-        # programmatically set to trigger our on_select_changed
+        # Programmatically set value to trigger on_select_changed and load initial models
         select.value = "ollama"
 
-        # disable model list until loaded
         ms = self.query_one("#llm_config_model_select", Select)
         ms.disabled = True
-        ms.value = Select.BLANK
+        ms.value = Select.BLANK  # Ensure it's blank initially
 
-        # init temperature & history
         self._update_temperature()
         self._update_max_history()
 
@@ -96,23 +93,27 @@ class LLMConfigPanel(VerticalScroll):
 
     async def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "llm_config_provider_select":
-            newp = str(event.value)
-            if self.provider != newp:
-                self.provider = newp
-                # clear & disable model list while loading
+            new_provider_value = str(event.value)
+            # Check if the provider actually changed to avoid redundant operations
+            if self.provider != new_provider_value:
+                self.provider = new_provider_value  # This will trigger watch_provider
+                # Clear & disable model list while loading
                 try:
-                    ms = self.query_one("#llm_config_model_select", Select)
-                    ms.set_options([])
-                    ms.disabled = True
-                    ms.prompt = "Loading models…"
+                    model_select = self.query_one("#llm_config_model_select", Select)
+                    model_select.set_options([])  # Clear existing options
+                    model_select.disabled = True
+                    model_select.prompt = "Loading models…"
+                    model_select.value = Select.BLANK  # Reset value
+                    self.model = None  # Clear reactive model
                 except NoMatches:
-                    pass
+                    logger.warning("LLMConfigPanel: Model select not found during provider change.")
+                # Post message to ChatView to initiate model loading
                 self.post_message(self.ProviderChanged(self.provider))
 
         elif event.select.id == "llm_config_model_select":
-            newm = str(event.value) if event.value != Select.BLANK else None
-            if self.model != newm:
-                self.model = newm
+            new_model_value = str(event.value) if event.value != Select.BLANK else None
+            if self.model != new_model_value:
+                self.model = new_model_value  # This will trigger watch_model
                 self.post_message(self.ModelChanged(self.model))
 
     async def on_input_changed(self, event: Input.Changed) -> None:
@@ -123,59 +124,95 @@ class LLMConfigPanel(VerticalScroll):
 
     def _update_temperature(self) -> None:
         try:
-            self.temperature = float(self.query_one("#llm_config_temperature", Input).value)
-        except Exception:
+            temp_input = self.query_one("#llm_config_temperature", Input)
+            self.temperature = float(temp_input.value)
+        except ValueError:
+            self.temperature = 0.7  # Default value on error
+            # Optionally, reset input value to default if desired
+            # temp_input.value = "0.7"
+        except NoMatches:
+            logger.error("LLMConfigPanel: Temperature input not found.")
             self.temperature = 0.7
 
     def _update_max_history(self) -> None:
         try:
-            self.max_history_messages = int(self.query_one("#llm_config_max_history", Input).value)
-        except Exception:
+            history_input = self.query_one("#llm_config_max_history", Input)
+            self.max_history_messages = int(history_input.value)
+        except ValueError:
+            self.max_history_messages = 20  # Default value on error
+            # Optionally, reset input value
+            # history_input.value = "20"
+        except NoMatches:
+            logger.error("LLMConfigPanel: Max history input not found.")
             self.max_history_messages = 20
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "llm_config_new_session_button":
             self.post_message(self.NewSessionRequested())
 
-    def update_models_list(self, models: List[Tuple[str, str]], prompt_text: str) -> None:
+    def update_models_list(self, models: List[Tuple[str, str]], prompt_text_if_empty: str) -> None:
         if not self.is_mounted:
             return
         try:
             sel = self.query_one("#llm_config_model_select", Select)
-            current = sel.value
-            sel.set_options(models)
+            current_selected_model = sel.value
+
+            sel.set_options(models)  # This clears old options and adds new ones
+
             if models:
                 sel.disabled = False
-                sel.prompt = "Select Model"
-                sel.value = current if current in [m for _, m in models] else Select.BLANK
+                sel.prompt = "Select Model"  # Default prompt when models are available
+                # Try to re-select the previously selected model if it's in the new list
+                if current_selected_model in [m_val for _, m_val in models]:
+                    sel.value = current_selected_model
+                else:
+                    # If previous selection is not in new list, or no previous selection, set to blank
+                    # Or, you could default to the first model: sel.value = models[0][1]
+                    sel.value = Select.BLANK
             else:
                 sel.disabled = True
-                sel.prompt = prompt_text
+                sel.prompt = (
+                    prompt_text_if_empty  # e.g., "No models available", "Error loading models"
+                )
                 sel.value = Select.BLANK
-                self.model = None
+                if self.model is not None:  # If a model was reactively set, clear it
+                    self.model = None
         except NoMatches:
             logger.error("LLMConfigPanel: model select not found in update_models_list")
 
     def set_model_select_loading(
         self, loading: bool, loading_text: str = "Loading models..."
     ) -> None:
-        try:
-            sel = self.query_one("#llm_config_model_select", Select)
-            sel.disabled = loading
-            sel.prompt = (
-                loading_text if loading else ("Select Model" if sel._options else "No models")
-            )
-        except NoMatches:
-            pass
-
-    def watch_model(self, old: Optional[str], new: Optional[str]) -> None:
         if not self.is_mounted:
             return
         try:
             sel = self.query_one("#llm_config_model_select", Select)
-            sel.value = new or Select.BLANK
+            sel.disabled = loading  # Disable while loading, enable after (if models were found)
+            if loading:
+                sel.prompt = loading_text
+            else:
+                # This part relies on update_models_list to have set the correct state
+                # If sel.disabled is False, it means update_models_list found models.
+                # If sel.disabled is True, update_models_list set a specific prompt (e.g., "No models").
+                if not sel.disabled:  # Models are available
+                    sel.prompt = "Select Model"
+                # If sel.disabled is True, its prompt was already set by update_models_list, so we don't change it here.
         except NoMatches:
-            pass
+            logger.warning("LLMConfigPanel: Model select not found in set_model_select_loading.")
+
+    def watch_model(self, old_model: Optional[str], new_model: Optional[str]) -> None:
+        # This watcher ensures the Select widget reflects the reactive `model` value.
+        # This is useful if `self.model` is changed programmatically elsewhere.
+        if not self.is_mounted:
+            return
+        try:
+            sel = self.query_one("#llm_config_model_select", Select)
+            # Only update the widget's value if it's different from the reactive value
+            # to prevent potential update loops or unnecessary on_select_changed events.
+            if sel.value != (new_model or Select.BLANK):
+                sel.value = new_model or Select.BLANK
+        except NoMatches:
+            logger.warning("LLMConfigPanel: Model select not found in watch_model.")
 
     def get_llm_config(self) -> Dict[str, Any]:
         cfg = {
@@ -184,4 +221,5 @@ class LLMConfigPanel(VerticalScroll):
             "temperature": self.temperature,
             "max_history_messages": self.max_history_messages,
         }
+        # Filter out None values, as some LLM libraries might not like None for optional params
         return {k: v for k, v in cfg.items() if v is not None}

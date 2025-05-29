@@ -22,11 +22,6 @@ CSSPathType = Union[str, Path, List[Union[str, Path]]]
 
 
 class MongoAnalyserApp(App[None]):
-    """
-    Main TUI application for Mongo Analyser.
-    Toggles between 'solarized-light' and 'textual-dark' on Ctrl+T.
-    """
-
     TITLE = "Mongo Analyser TUI"
     CSS_PATH = "app.tcss"
 
@@ -39,15 +34,13 @@ class MongoAnalyserApp(App[None]):
         Binding("shift+insert", "app_paste", "Paste (Alt)", show=False, priority=True),
     ]
 
-    # application state
     current_mongo_uri: reactive[Optional[str]] = reactive(None)
     current_db_name: reactive[Optional[str]] = reactive(None)
     available_collections: reactive[List[str]] = reactive([])
     active_collection: reactive[Optional[str]] = reactive(None)
     current_schema_analysis_results: reactive[Optional[dict]] = reactive(None)
 
-    # which palette is active (True = dark, False = light)
-    dark: bool
+    is_dark_theme_active: reactive[bool] = reactive(True)
 
     def __init__(
         self,
@@ -56,17 +49,19 @@ class MongoAnalyserApp(App[None]):
         watch_css: bool = False,
     ):
         super().__init__(driver_class, css_path, watch_css)
-        # default to dark on startup
-        self.dark = True
+        self.is_dark_theme_active = True
 
     def on_mount(self) -> None:
-        """Apply the initial theme on mount."""
-        chosen = "dracula" if self.dark else "textual-dark"
-        self.theme = chosen
-        logger.info(f"Starting with theme: {chosen}")
+        self.action_apply_theme()
+        logger.info(f"Starting with theme: {'dracula' if self.is_dark_theme_active else 'light'}")
+
+    def action_apply_theme(self) -> None:
+        """Applies the current theme (dark or light)."""
+        # Assuming "dracula" is your preferred dark theme and "light" is Textual's built-in light theme.
+        # If you have a custom light theme CSS, replace "light" with its name.
+        self.theme = "dracula" if self.is_dark_theme_active else "light"
 
     def watch_available_collections(self, old: List[str], new: List[str]) -> None:
-        # propagate collection list changes to views
         for view_cls in (SchemaAnalysisView, DataExplorerView):
             try:
                 view = self.query_one(view_cls)
@@ -76,7 +71,6 @@ class MongoAnalyserApp(App[None]):
                 pass
 
     def watch_active_collection(self, old: Optional[str], new: Optional[str]) -> None:
-        # clear cached schema on collection switch
         if old != new:
             self.current_schema_analysis_results = None
         for view_cls in (SchemaAnalysisView, DataExplorerView):
@@ -103,7 +97,6 @@ class MongoAnalyserApp(App[None]):
         yield Footer()
 
     async def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
-        # switch ContentSwitcher based on activated tab
         if not event.tab or not event.tab.id:
             return
         suffix = event.tab.id.split("_", 1)[1]
@@ -111,7 +104,6 @@ class MongoAnalyserApp(App[None]):
         try:
             switcher = self.query_one(ContentSwitcher)
             switcher.current = view_id
-            # focus default widget if available
             widget = switcher.get_widget_by_id(view_id)
             if hasattr(widget, "focus_default_widget"):
                 widget.focus_default_widget()
@@ -119,7 +111,6 @@ class MongoAnalyserApp(App[None]):
             logger.error(f"Could not switch to view '{view_id}'")
 
     async def action_app_copy(self) -> None:
-        # copy selected text from Input if possible
         focused = self.focused
         if isinstance(focused, Input):
             text = (
@@ -148,11 +139,9 @@ class MongoAnalyserApp(App[None]):
         self.notify("Cannot paste here", title="Paste Info", severity="warning")
 
     def action_toggle_theme(self) -> None:
-        # flip between dark and light
-        self.dark = not self.dark
-        chosen = "dracula" if self.dark else "textual-dark"
-        self.theme = chosen
-        logger.info(f"Switched to theme: {chosen}")
+        self.is_dark_theme_active = not self.is_dark_theme_active
+        self.action_apply_theme()
+        logger.info(f"Switched to theme: {'dracula' if self.is_dark_theme_active else 'light'}")
 
 
 def main_interactive_tui():
@@ -171,7 +160,6 @@ def main_interactive_tui():
         format="%(asctime)s %(levelname)s %(name)s:%(lineno)d - %(message)s",
     )
 
-    # suppress noisy libs
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("litellm").setLevel(logging.WARNING)
