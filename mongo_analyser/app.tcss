@@ -133,7 +133,7 @@ LoadingIndicator {
 #view_db_connection_content #connect_mongo_button { width: 100%; }
 #view_db_connection_content #mongo_connection_status_label { padding: 1; width: 100%; text-align: center; border: round $background-lighten-2; height: auto; }
 #view_db_connection_content .collections_list_container { border: round $primary-darken-1; height: 12; padding:0; background: $primary-background-darken-3; overflow: auto; }
-#view_db_connection_content #indexes_data_table { border: round $primary-darken-1; height: 10; padding:0; background: $primary-background-darken-3; overflow: auto; }
+#view_db_connection_content #indexes_data_table { border: round $primary-darken-1; height: 12; padding:0; background: $primary-background-darken-3; overflow: auto; }
 
 
 /* Schema Analysis View */
@@ -149,7 +149,7 @@ LoadingIndicator {
 #view_schema_analysis_content #save_schema_json_button { width: 100%; }
 #view_schema_analysis_content #schema_loading_indicator { margin-bottom: 0; margin-top: 1; }
 #view_schema_analysis_content #schema_results_table { height: 20; border: round $primary-darken-1; overflow: auto; }
-#view_schema_analysis_content .json_view_container { height: 15; border: round $primary-darken-1; background: $primary-background-darken-3; padding: 1; overflow: auto; }
+#view_schema_analysis_content .json_view_container { height: 20; border: round $primary-darken-1; background: $primary-background-darken-3; padding: 1; overflow: auto; }
 #view_schema_analysis_content .copy_button_container { layout: horizontal; height: auto; width: 100%; align: center middle; }
 #view_schema_analysis_content .copy_button_container Button { width: 1fr; margin: 0 1; }
 #view_schema_analysis_content #schema_copy_feedback_label { width: 100%; text-align: center; height: 1; color: $success; }
@@ -226,7 +226,7 @@ ErrorDialog Center { margin-top: 1; height: auto; }
 #view_data_explorer_content #document_display_area { height: 20; border: round $primary-darken-1; background: $primary-background-darken-3; padding: 1; overflow: auto; }
 #view_data_explorer_content #document_navigation { layout: horizontal; height: auto; align: center middle; }
 #view_data_explorer_content #document_navigation Button { width: 1fr; max-width: 20; margin: 0 1; }
-#view_data_explorer_content #doc_nav_label { width: auto; min-width: 10; padding: 0 1; text-align: center; }
+#view_data_explorer_content #doc_nav_label { width: auto; min-width: 20; padding: 0 1; text-align: center; }
 #view_data_explorer_content #data_explorer_status { height: auto; }
 #view_data_explorer_content #data_explorer_feedback_label { width: 100%; text-align: center; height: 1; color: $success; }
 #view_data_explorer_content .action_button_group { layout: horizontal; height: auto; width: 100%; align: center middle; }

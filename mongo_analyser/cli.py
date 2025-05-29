@@ -5,6 +5,8 @@ import sys
 
 from mongo_analyser.tui import main_interactive_tui
 
+from . import __version__ as mongo_analyser_version
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,13 +20,13 @@ def main():
         )
 
     parser = argparse.ArgumentParser(
-        description="Mongo Analyser TUI Launcher.",
+        description="Mongo Analyser: Analyze and Understand Your Data in MongoDB",
         prog="mongo-analyser",
     )
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 0.5.1",
+        version=f"{mongo_analyser_version}",
     )
 
     args = parser.parse_args()

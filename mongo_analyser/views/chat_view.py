@@ -283,8 +283,11 @@ class ChatView(Container):
                             default = p
                             break
                 elif provider_value == "google":
-                    preferred_google = ["models/gemini-2.0-flash-lite", "models/gemini-2.0-flash",
-                                        "models/gemini-1.5-flash"]
+                    preferred_google = [
+                        "models/gemini-2.0-flash-lite",
+                        "models/gemini-2.0-flash",
+                        "models/gemini-1.5-flash",
+                    ]
                     for p in preferred_google:
                         if p in listed:
                             default = p

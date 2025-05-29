@@ -67,7 +67,7 @@ class MongoAnalyserApp(App[None]):
         except Exception as e:
             logger.error(f"Failed to set initial theme '{chosen}': {e}. Falling back to default.")
 
-    def watch_available_collections(self, old: List[str], new: List[str]) -> None:
+    def watch_available_collections(self) -> None:
         for view_cls in (SchemaAnalysisView, DataExplorerView):
             try:
                 view = self.query_one(view_cls)
@@ -126,7 +126,6 @@ class MongoAnalyserApp(App[None]):
             source_widget_type = "Input"
             text_to_copy = focused.selected_text if focused.selected_text else focused.value
         elif isinstance(focused, DataTable):
-            source_widget_type = "DataTable cell"
             if focused.show_cursor and focused.cursor_coordinate:
                 try:
                     cell_renderable = focused.get_cell_at(focused.cursor_coordinate)
@@ -154,7 +153,7 @@ class MongoAnalyserApp(App[None]):
                 self.notify(
                     "DataTable has no active cursor or cell selected.",
                     title="Copy Info",
-                    severity="info",
+                    severity="information",
                     timeout=3,
                 )
                 return
@@ -190,7 +189,7 @@ class MongoAnalyserApp(App[None]):
                 self.notify(
                     f"Focused {source_widget_type} is empty.",
                     title="Copy Info",
-                    severity="info",
+                    severity="information",
                     timeout=3,
                 )
                 return
@@ -198,7 +197,7 @@ class MongoAnalyserApp(App[None]):
         self.notify(
             "No text selected or suitable widget focused to copy.",
             title="Copy Info",
-            severity="info",
+            severity="information",
             timeout=3,
         )
 
@@ -241,7 +240,6 @@ def main_interactive_tui():
         app = MongoAnalyserApp()
         if enable_devtools:
             app.devtools = True
-            app.debug = True
         app.run()
     except Exception:
         logger.critical("MongoAnalyserApp crashed", exc_info=True)
