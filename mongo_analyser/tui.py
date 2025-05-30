@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Type, Union
 
+from mongo_analyser.core import db as core_db_manager
+from mongo_analyser.views import ChatView, DataExplorerView, DBConnectionView, SchemaAnalysisView
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -21,9 +23,6 @@ from textual.widgets import (
     Tab,
     Tabs,
 )
-
-from mongo_analyser.core import db as core_db_manager
-from mongo_analyser.views import ChatView, DataExplorerView, DBConnectionView, SchemaAnalysisView
 
 logger = logging.getLogger(__name__)
 
@@ -56,17 +55,33 @@ class MongoAnalyserApp(App[None]):
         driver_class: Optional[Type[Driver]] = None,
         css_path: Optional[CSSPathType] = None,
         watch_css: bool = False,
+        initial_mongo_uri: Optional[str] = None,
+        initial_db_name: Optional[str] = None,
     ):
         super().__init__(driver_class, css_path, watch_css)
         self.dark = True
+        self._initial_mongo_uri = initial_mongo_uri
+        self._initial_db_name = initial_db_name
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "MongoAnalyserApp initialized with initial URI: '%s', initial DB name: '%s'",
+                self._initial_mongo_uri,
+                self._initial_db_name,
+            )
 
     def on_mount(self) -> None:
-        chosen = "dracula" if self.dark else "textual-dark"
+        chosen_theme = "dracula" if self.dark else "textual-dark"
         try:
-            self.theme = chosen
-            logger.info(f"Starting with theme: {chosen}")
+            self.theme = chosen_theme
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Starting with theme: %s", chosen_theme)
         except Exception as e:
-            logger.error(f"Failed to set initial theme '{chosen}': {e}. Falling back to default.")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to set initial theme '%s': %s. Falling back to default.",
+                    chosen_theme,
+                    e,
+                )
 
     def watch_available_collections(self) -> None:
         for view_cls in (SchemaAnalysisView, DataExplorerView):
@@ -111,14 +126,14 @@ class MongoAnalyserApp(App[None]):
         try:
             switcher = self.query_one(ContentSwitcher)
             switcher.current = view_id
-            widget = switcher.get_widget_by_id(view_id)
-            if hasattr(widget, "focus_default_widget"):
-                widget.focus_default_widget()
+            widget_to_focus = switcher.get_widget_by_id(view_id)
+            if hasattr(widget_to_focus, "focus_default_widget"):
+                widget_to_focus.focus_default_widget()
         except NoMatches:
-            logger.error(f"Could not switch to view '{view_id}'")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Could not switch to view '%s' or find its content widget.", view_id)
 
     async def action_app_copy(self) -> None:
-        """Handles copying text from the focused Input, DataTable cell, Static, or Label."""
         focused = self.focused
         text_to_copy: Optional[str] = None
         source_widget_type = "unknown"
@@ -127,6 +142,7 @@ class MongoAnalyserApp(App[None]):
             source_widget_type = "Input"
             text_to_copy = focused.selected_text if focused.selected_text else focused.value
         elif isinstance(focused, DataTable):
+            source_widget_type = "DataTable"
             if focused.show_cursor and focused.cursor_coordinate:
                 try:
                     cell_renderable = focused.get_cell_at(focused.cursor_coordinate)
@@ -136,13 +152,17 @@ class MongoAnalyserApp(App[None]):
                         text_to_copy = cell_renderable
                     else:
                         text_to_copy = str(cell_renderable)
-                    logger.debug(
-                        f"DataTable copy: cell at {focused.cursor_coordinate} gave '{text_to_copy}'"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "DataTable copy: cell at %s gave '%s'",
+                            focused.cursor_coordinate,
+                            text_to_copy,
+                        )
                 except Exception as e:
-                    logger.error(
-                        f"Error getting DataTable cell content for copy: {e}", exc_info=True
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            "Error getting DataTable cell content for copy: %s", e, exc_info=True
+                        )
                     self.notify(
                         "Failed to get cell content.",
                         title="Copy Error",
@@ -160,7 +180,6 @@ class MongoAnalyserApp(App[None]):
                 return
         elif isinstance(focused, (Static, Label)):
             source_widget_type = focused.__class__.__name__
-
             widget_content = getattr(focused, "renderable", None)
             if isinstance(widget_content, Text):
                 text_to_copy = widget_content.plain
@@ -178,7 +197,8 @@ class MongoAnalyserApp(App[None]):
                         timeout=3,
                     )
                 except Exception as e:
-                    logger.error("Copy to clipboard failed", exc_info=e)
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error("Copy to clipboard failed: %s", e, exc_info=True)
                     self.notify(
                         "Copy to system clipboard failed. Check logs/permissions.",
                         title="Copy Error",
@@ -204,50 +224,133 @@ class MongoAnalyserApp(App[None]):
 
     def action_toggle_theme(self) -> None:
         self.dark = not self.dark
-        chosen = "dracula" if self.dark else "textual-dark"
+        chosen_theme = "dracula" if self.dark else "textual-dark"
         try:
-            self.theme = chosen
-            logger.info(f"Switched to theme: {chosen}")
+            self.theme = chosen_theme
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Switched to theme: %s", chosen_theme)
         except Exception as e:
-            logger.error(
-                f"Failed to switch theme to '{chosen}': {e}. Theme may not be registered or CSS is missing."
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to switch theme to '%s': %s. Theme may not be registered or CSS is missing.",
+                    chosen_theme,
+                    e,
+                )
+
+
+def main_interactive_tui(
+    log_level_override: Optional[str] = None,
+    initial_mongo_uri: Optional[str] = None,
+    initial_db_name: Optional[str] = None,
+):
+    effective_log_level_str = log_level_override or os.environ.get("LOG_LEVEL", "INFO").upper()
+    app_logger = logging.getLogger("mongo_analyser")
+
+    if effective_log_level_str.upper() != "OFF":
+        log_dir = Path(os.getenv("MONGO_ANALYSER_LOG_DIR", Path.cwd()))
+        log_file = log_dir / "mongo_analyser_tui.log"
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            print(
+                f"Warning: Could not create log directory {log_dir}: {e}. Log file might not be created.",
+                file=sys.stderr,
             )
 
+        formatter = logging.Formatter(
+            "%(asctime)s %(levelname)-8s %(name)s:%(lineno)d - %(message)s"
+        )
 
-def main_interactive_tui():
-    log_dir = Path(os.getenv("MONGO_ANALYSER_LOG_DIR", Path.cwd()))
-    log_file = log_dir / "mongo_analyser_tui.log"
-    log_dir.mkdir(parents=True, exist_ok=True)
+        has_file_handler_for_this_file = any(
+            isinstance(h, logging.FileHandler)
+            and hasattr(h, "baseFilename")
+            and Path(h.baseFilename).resolve() == log_file.resolve()
+            for h in app_logger.handlers
+        )
+
+        if not has_file_handler_for_this_file:
+            try:
+                fh = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+
+                fh.setLevel(app_logger.getEffectiveLevel())
+                fh.setFormatter(formatter)
+                app_logger.addHandler(fh)
+                if app_logger.isEnabledFor(logging.DEBUG):
+                    app_logger.debug(
+                        "File logging handler added to '%s' for %s at level %s",
+                        app_logger.name,
+                        log_file,
+                        logging.getLevelName(fh.level),
+                    )
+            except Exception as e:
+                print(f"Warning: Could not set up file logging to {log_file}: {e}", file=sys.stderr)
+        else:
+            if app_logger.isEnabledFor(logging.DEBUG):
+                app_logger.debug(
+                    "File logging handler for %s already exists on %s.", log_file, app_logger.name
+                )
+
+        if app_logger.getEffectiveLevel() > logging.DEBUG:
+            for lib_logger_name in [
+                "httpx",
+                "httpcore",
+                "openai",
+                "google.generativeai",
+                "pymongo.command",
+                "urllib3.connectionpool",
+            ]:
+                lib_logger = logging.getLogger(lib_logger_name)
+                if lib_logger.getEffectiveLevel() < logging.WARNING:
+                    lib_logger.setLevel(logging.WARNING)
+
+    if logger.isEnabledFor(logging.INFO):
+        logger.info(
+            "--- Starting Mongo Analyser TUI (Effective Log Level for 'mongo_analyser': %s) ---",
+            logging.getLevelName(app_logger.getEffectiveLevel()),
+        )
+
     enable_devtools = os.getenv("MONGO_ANALYSER_DEBUG", "0") == "1"
-    handlers = [
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, mode="a", encoding="utf-8"),
-    ]
-    logging.basicConfig(
-        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-        handlers=handlers,
-        force=True,
-        format="%(asctime)s %(levelname)-8s %(name)s:%(lineno)d - %(message)s",
-    )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("openai").setLevel(logging.WARNING)
-    logging.getLogger("google.generativeai").setLevel(logging.WARNING)
-
-    logger.info("--- Starting Mongo Analyser TUI ---")
-    if enable_devtools:
+    if enable_devtools and logger.isEnabledFor(logging.INFO):
         logger.info("Textual Devtools are enabled (MONGO_ANALYSER_DEBUG=1).")
+
     try:
-        app = MongoAnalyserApp()
-        if enable_devtools:
-            app.devtools = True
+        app = MongoAnalyserApp(initial_mongo_uri=initial_mongo_uri, initial_db_name=initial_db_name)
+        if enable_devtools and hasattr(app, "devtools"):
+            try:
+                app.devtools = True
+            except Exception as e_devtools:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to enable Textual Devtools: %s. Is textual-dev installed?",
+                        e_devtools,
+                    )
         app.run()
-    except Exception:
-        logger.critical("MongoAnalyserApp crashed", exc_info=True)
+    except Exception as e_run:
+        if logger.isEnabledFor(logging.CRITICAL):
+            logger.critical("MongoAnalyserApp crashed during run: %s", e_run, exc_info=True)
+        raise
     finally:
-        logger.info("--- Exiting Mongo Analyser TUI ---")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("--- Exiting Mongo Analyser TUI ---")
         core_db_manager.disconnect_all_mongo()
 
 
 if __name__ == "__main__":
-    main_interactive_tui()
+    print(
+        "Running tui.py directly. For CLI arguments, use 'mongo_analyser' or 'python -m mongo_analyser.cli'."
+    )
+    _log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    if _log_level == "OFF":
+        logging.disable(logging.CRITICAL + 1)
+    else:
+        logging.basicConfig(
+            level=_log_level,
+            format="%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s",
+            handlers=[logging.StreamHandler(sys.stderr)],
+            force=True,
+        )
+    main_interactive_tui(
+        log_level_override=_log_level,
+        initial_mongo_uri=os.getenv("MONGO_URI"),
+        initial_db_name=os.getenv("MONGO_DATABASE"),
+    )
