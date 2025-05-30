@@ -4,8 +4,6 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Type, Union
 
-from mongo_analyser.core import db as core_db_manager
-from mongo_analyser.views import ChatView, DataExplorerView, DBConnectionView, SchemaAnalysisView
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -23,6 +21,9 @@ from textual.widgets import (
     Tab,
     Tabs,
 )
+
+from mongo_analyser.core import db as core_db_manager
+from mongo_analyser.views import ChatView, DataExplorerView, DBConnectionView, SchemaAnalysisView
 
 logger = logging.getLogger(__name__)
 

@@ -6,8 +6,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from mongo_analyser.core.analyser import SchemaAnalyser
-from mongo_analyser.dialogs import ErrorDialog
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
@@ -28,11 +26,22 @@ from textual.widgets import (
 )
 from textual.worker import Worker, WorkerCancelled
 
+from mongo_analyser.core.analyser import SchemaAnalyser
+from mongo_analyser.dialogs import ErrorDialog
+
 logger = logging.getLogger(__name__)
 
 
+NO_DB_CONNECTION_TEXT = Text.from_markup(
+    "[#BF616A]MongoDB not connected. Please connect in the 'DB Connection' tab first.[/]"
+)
+NO_COLLECTION_SELECTED_TEXT = Text.from_markup(
+    "[#BF616A]No collection selected. Please select a collection from the dropdown.[/]"
+)
+UI_ERROR_INPUT_WIDGETS_TEXT = Text.from_markup("[#BF616A]UI Error: Input widgets not found.[/]")
+
+
 def _is_auth_error_from_op_failure(e: PyMongoOperationFailure) -> bool:
-    """Checks if a PyMongoOperationFailure is likely an authorization error."""
     if e.code == 13:
         return True
     error_msg_lower = str(e).lower()
@@ -150,6 +159,7 @@ class SchemaAnalysisView(Container):
             needs_options_update = collections != self._last_collections
             needs_value_update = (
                 app_active_collection != current_selection_in_widget
+                and app_active_collection is not None
                 and app_active_collection in collections
             )
 
@@ -231,8 +241,8 @@ class SchemaAnalysisView(Container):
         self._current_schema_json_str = "{}"
         if self.is_mounted and hasattr(self, "query_one"):
             try:
-                md_view = self.query_one("#schema_json_view", Markdown)
-                md_view.update(f"```json\n{self._current_schema_json_str}\n```")
+                md_view_update = self.query_one("#schema_json_view", Markdown)
+                md_view_update.update(f"```json\n{self._current_schema_json_str}\n```")
             except NoMatches:
                 pass
 
@@ -252,7 +262,11 @@ class SchemaAnalysisView(Container):
                 lbl = self.query_one("#schema_copy_feedback_label", Static)
                 lbl.update(new_feedback)
                 if self._feedback_timer is not None:
-                    self._feedback_timer.stop_no_wait()
+                    try:
+                        self._feedback_timer.stop()
+                    except AttributeError:
+                        if hasattr(self._feedback_timer, "stop_no_wait"):
+                            self._feedback_timer.stop_no_wait()
                     self._feedback_timer = None
                 if new_feedback.plain:
                     self._feedback_timer = self.set_timer(
@@ -265,89 +279,77 @@ class SchemaAnalysisView(Container):
             except Exception as e:
                 logger.error(f"Error in watch_schema_copy_feedback: {e}", exc_info=True)
 
-    def _prepare_analysis_inputs(
-        self,
-    ) -> Tuple[Optional[str], Optional[str], Optional[str], str, Optional[Text]]:
-        uri = self.app.current_mongo_uri
-        db_name = self.app.current_db_name
-        if not uri or not db_name:
-            return (
-                None,
-                None,
-                None,
-                "",
-                Text.from_markup(
-                    "[#BF616A]MongoDB not connected. Connect in 'DB Connection' tab.[/]"
-                ),
-            )
+    def _validate_sample_size_input(self) -> Tuple[Optional[str], Optional[Text]]:
+        """Validates sample size input. Returns (size_str, error_text_or_none)."""
         try:
-            sel = self.query_one("#schema_collection_select", Select)
-            coll = str(sel.value) if sel.value != Select.BLANK else None
-            size_str = self.query_one("#schema_sample_size_input", Input).value.strip()
-        except NoMatches:
-            return (
-                uri,
-                db_name,
-                None,
-                "",
-                Text.from_markup("[#BF616A]UI Error: Input widgets not found.[/]"),
-            )
-        if not coll:
-            return (
-                uri,
-                db_name,
-                None,
-                size_str,
-                Text.from_markup("[#BF616A]Please select a collection.[/]"),
-            )
-        if not size_str:
-            return (
-                uri,
-                db_name,
-                coll,
-                "",
-                Text.from_markup("[#BF616A]Sample size cannot be empty.[/]"),
-            )
-        try:
+            size_input_widget = self.query_one("#schema_sample_size_input", Input)
+            size_str = size_input_widget.value.strip()
+            if not size_str:
+                return None, Text.from_markup("[#BF616A]Sample size cannot be empty.[/]")
             int(size_str)
+            return size_str, None
+        except NoMatches:
+            return None, UI_ERROR_INPUT_WIDGETS_TEXT
         except ValueError:
-            return (
-                uri,
-                db_name,
-                coll,
-                "",
-                Text.from_markup("[#BF616A]Sample size must be an integer.[/]"),
-            )
-        return uri, db_name, coll, size_str, None
+            return None, Text.from_markup("[#BF616A]Sample size must be an integer.[/]")
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         btn = event.button.id
+        loading_indicator = self.query_one("#schema_loading_indicator", LoadingIndicator)
+
         if btn == "analyze_schema_button":
             self._clear_analysis_results()
-            loading_indicator = self.query_one("#schema_loading_indicator", LoadingIndicator)
             loading_indicator.display = True
             self.analysis_status = Text.from_markup("[#EBCB8B]Preparing analysis...[/]")
             self.schema_copy_feedback = Text("")
 
-            uri, db, coll, size_str, err_text = self._prepare_analysis_inputs()
-            if err_text or not uri or not db or not coll:
-                self.analysis_status = err_text or Text.from_markup(
-                    "[#BF616A]Missing DB connection or collection.[/]"
+            if not self.app.current_mongo_uri or not self.app.current_db_name:
+                self.analysis_status = NO_DB_CONNECTION_TEXT
+                await self.app.push_screen(
+                    ErrorDialog("Connection Required", NO_DB_CONNECTION_TEXT.plain)
                 )
-                if err_text:
-                    await self.app.push_screen(ErrorDialog("Input Error", err_text.plain))
-                if self.is_mounted:
-                    loading_indicator.display = False
+                loading_indicator.display = False
                 return
 
-            size = int(size_str)
+            collection_name: Optional[str] = None
+            try:
+                coll_select = self.query_one("#schema_collection_select", Select)
+                if coll_select.value == Select.BLANK:
+                    self.analysis_status = NO_COLLECTION_SELECTED_TEXT
+                    await self.app.push_screen(
+                        ErrorDialog("Collection Required", NO_COLLECTION_SELECTED_TEXT.plain)
+                    )
+                    loading_indicator.display = False
+                    return
+                collection_name = str(coll_select.value)
+            except NoMatches:
+                self.analysis_status = UI_ERROR_INPUT_WIDGETS_TEXT
+                await self.app.push_screen(
+                    ErrorDialog("UI Error", UI_ERROR_INPUT_WIDGETS_TEXT.plain)
+                )
+                loading_indicator.display = False
+                return
+
+            sample_size_str, err_text = self._validate_sample_size_input()
+            if err_text or sample_size_str is None:
+                self.analysis_status = err_text or Text.from_markup("[#BF616A]Invalid input.[/]")
+                if err_text:
+                    await self.app.push_screen(ErrorDialog("Input Error", err_text.plain))
+                loading_indicator.display = False
+                return
+
+            uri = self.app.current_mongo_uri
+            db_name = self.app.current_db_name
+
+            size = int(sample_size_str)
             self.analysis_status = Text.from_markup(
-                f"[#EBCB8B]Analyzing content of '{coll}' using a sample of {size if size >= 0 else 'all'} docs...[/]"
+                f"[#EBCB8B]Analyzing content of '{collection_name}' using a sample of {size if size >= 0 else 'all'} docs...[/]"
             )
 
             try:
-                callable_with_args = functools.partial(self._run_analysis_task, uri, db, coll, size)
-
+                callable_with_args = functools.partial(
+                    self._run_analysis_task, uri, db_name, collection_name, size
+                )
                 worker: Worker[
                     Tuple[
                         Optional[Dict], Optional[Dict], Optional[Dict], Optional[Tuple[str, bool]]
@@ -377,7 +379,7 @@ class SchemaAnalysisView(Container):
                         "flat_schema": schema_data,
                         "field_stats": field_stats_data,
                         "hierarchical_schema": hierarchical_schema,
-                        "collection_name": coll,
+                        "collection_name": collection_name,
                     }
                     table = self.query_one("#schema_results_table", DataTable)
                     md_view = self.query_one("#schema_json_view", Markdown)

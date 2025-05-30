@@ -2,9 +2,6 @@ import functools
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from mongo_analyser.core import db as core_db_manager
-from mongo_analyser.core.shared import redact_uri_password
-from mongo_analyser.dialogs import ErrorDialog
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
@@ -15,6 +12,10 @@ from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widgets import Button, DataTable, Input, Label, Static
 from textual.worker import Worker, WorkerCancelled
+
+from mongo_analyser.core import db as core_db_manager
+from mongo_analyser.core.shared import redact_uri_password
+from mongo_analyser.dialogs import ErrorDialog
 
 logger = logging.getLogger(__name__)
 

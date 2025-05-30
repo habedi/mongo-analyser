@@ -4,8 +4,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from mongo_analyser.core.extractor import get_newest_documents
-from mongo_analyser.dialogs import ErrorDialog
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
@@ -25,7 +23,19 @@ from textual.widgets import (
 )
 from textual.worker import Worker, WorkerCancelled
 
+from mongo_analyser.core.extractor import get_newest_documents
+from mongo_analyser.dialogs import ErrorDialog
+
 logger = logging.getLogger(__name__)
+
+
+NO_DB_CONNECTION_TEXT_DE = Text.from_markup(
+    "[#BF616A]MongoDB not connected. Please connect in the 'DB Connection' tab first.[/]"
+)
+NO_COLLECTION_SELECTED_TEXT_DE = Text.from_markup(
+    "[#BF616A]No collection selected. Please select a collection from the dropdown.[/]"
+)
+UI_ERROR_INPUT_WIDGETS_TEXT_DE = Text.from_markup("[#BF616A]UI Error: Input widgets not found.[/]")
 
 
 def _is_auth_error_from_op_failure_de(e: PyMongoOperationFailure) -> bool:
@@ -109,6 +119,7 @@ class DataExplorerView(Container):
             needs_options_update = collections != self._last_collections
             needs_value_update = (
                 app_active_collection != current_selection_in_widget
+                and app_active_collection is not None
                 and app_active_collection in collections
             )
 
@@ -184,49 +195,62 @@ class DataExplorerView(Container):
 
     @on(Button.Pressed, "#fetch_documents_button")
     async def fetch_documents_button_pressed(self) -> None:
-        uri = self.app.current_mongo_uri
-        db_name = self.app.current_db_name
         self.feedback_message = Text("")
         loader = self.query_one("#data_fetch_loading_indicator", LoadingIndicator)
 
-        try:
-            sel = self.query_one("#data_explorer_collection_select", Select)
-            collection_name = None if sel.value == Select.BLANK else str(sel.value)
-        except NoMatches:
-            await self.app.push_screen(ErrorDialog("Error", "Collection select widget not found."))
-            return
-
-        if not uri or not db_name or not collection_name:
-            self.status_message = Text.from_markup(
-                "[#BF616A]MongoDB not connected or collection not selected.[/]"
-            )
+        if not self.app.current_mongo_uri or not self.app.current_db_name:
+            self.status_message = NO_DB_CONNECTION_TEXT_DE
             await self.app.push_screen(
-                ErrorDialog("Input Error", "Connect to DB and select a collection first.")
+                ErrorDialog("Connection Required", NO_DB_CONNECTION_TEXT_DE.plain)
             )
             return
 
+        collection_name: Optional[str] = None
+        try:
+            coll_select = self.query_one("#data_explorer_collection_select", Select)
+            if coll_select.value == Select.BLANK:
+                self.status_message = NO_COLLECTION_SELECTED_TEXT_DE
+                await self.app.push_screen(
+                    ErrorDialog("Collection Required", NO_COLLECTION_SELECTED_TEXT_DE.plain)
+                )
+                return
+            collection_name = str(coll_select.value)
+        except NoMatches:
+            self.status_message = UI_ERROR_INPUT_WIDGETS_TEXT_DE
+            await self.app.push_screen(
+                ErrorDialog("UI Error", UI_ERROR_INPUT_WIDGETS_TEXT_DE.plain)
+            )
+            return
+
+        sample_size: int
         try:
             inp = self.query_one("#data_explorer_sample_size_input", Input)
             sample_size_str = inp.value.strip()
             if not sample_size_str:
-                await self.app.push_screen(
-                    ErrorDialog("Input Error", "Sample size cannot be empty.")
-                )
+                err_text = Text.from_markup("[#BF616A]Sample size cannot be empty.[/]")
+                self.status_message = err_text
+                await self.app.push_screen(ErrorDialog("Input Error", err_text.plain))
                 return
             sample_size = int(sample_size_str)
             if sample_size <= 0:
-                await self.app.push_screen(
-                    ErrorDialog("Input Error", "Sample size must be a positive integer.")
-                )
+                err_text = Text.from_markup("[#BF616A]Sample size must be a positive integer.[/]")
+                self.status_message = err_text
+                await self.app.push_screen(ErrorDialog("Input Error", err_text.plain))
                 return
         except ValueError:
-            await self.app.push_screen(
-                ErrorDialog("Input Error", "Invalid sample size. Must be an integer.")
-            )
+            err_text = Text.from_markup("[#BF616A]Invalid sample size. Must be an integer.[/]")
+            self.status_message = err_text
+            await self.app.push_screen(ErrorDialog("Input Error", err_text.plain))
             return
         except NoMatches:
-            await self.app.push_screen(ErrorDialog("Error", "Sample size input widget not found."))
+            self.status_message = UI_ERROR_INPUT_WIDGETS_TEXT_DE
+            await self.app.push_screen(
+                ErrorDialog("UI Error", UI_ERROR_INPUT_WIDGETS_TEXT_DE.plain)
+            )
             return
+
+        uri = self.app.current_mongo_uri
+        db_name = self.app.current_db_name
 
         self.status_message = Text(f"Fetching documents from '{collection_name}'…")
         self.sample_documents = []
@@ -431,7 +455,11 @@ class DataExplorerView(Container):
                 feedback_label = self.query_one("#data_explorer_feedback_label", Static)
                 feedback_label.update(new_feedback)
                 if self._feedback_timer_de is not None:
-                    self._feedback_timer_de.stop_no_wait()
+                    try:
+                        self._feedback_timer_de.stop()
+                    except AttributeError:
+                        if hasattr(self._feedback_timer_de, "stop_no_wait"):
+                            self._feedback_timer_de.stop_no_wait()
                     self._feedback_timer_de = None
                 if new_feedback.plain:
                     self._feedback_timer_de = self.set_timer(
