@@ -120,9 +120,10 @@ class ChatView(Container):
         try:
             log_widget = self.query_one("#chat_log_widget", ChatMessageList)
             log_widget.clear_messages()
-            self._apply_contexts_to_input_field()
         except NoMatches:
             logger.warning("Chat log widget not found for clearing during reset.")
+
+        self._apply_contexts_to_input_field()
         self._log_chat_message(self.ROLE_SYSTEM, status_message)
         self._update_chat_status_line(status="Idle", current_messages=0)
 
@@ -134,8 +135,11 @@ class ChatView(Container):
         self.focus_default_widget()
         try:
             self.query_one("#chat_model_loading_indicator", LoadingIndicator).display = False
+            self.query_one("#active_context_indicator_label", Static).display = False
         except NoMatches:
-            logger.warning("ChatView: #chat_model_loading_indicator not found on mount")
+            logger.warning(
+                "ChatView: Initial display setup for indicators failed (widget not found)."
+            )
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="chat_interface_horizontal_layout"):
@@ -163,6 +167,7 @@ class ChatView(Container):
                         id="prepend_sample_docs_button",
                         classes="context_button",
                     )
+                yield Static("", id="active_context_indicator_label", classes="context_indicator")
                 with Horizontal(id="chat_input_bar", classes="chat_input_container"):
                     yield Input(placeholder="Type a message...", id="chat_message_input")
                     yield Button(
@@ -365,9 +370,9 @@ class ChatView(Container):
             self._reset_chat_log_and_status(f"Model set to: {model_value}. Session reset.")
             try:
                 self.query_one("#chat_message_input", Input).value = ""
-                self._apply_contexts_to_input_field()
             except NoMatches:
                 pass
+            self._apply_contexts_to_input_field()
             if self._create_and_set_llm_client():
                 self._log_chat_message(self.ROLE_SYSTEM, "Session ready. LLM client configured.")
                 self._update_chat_status_line(status="Ready")
@@ -494,9 +499,7 @@ class ChatView(Container):
             )
             return
 
-        full_user_text_from_input = input_widget.value
-
-        user_typed_message = self._strip_existing_context_block(full_user_text_from_input).strip()
+        user_typed_message = input_widget.value.strip()
 
         if not user_typed_message:
             self.app.notify("Cannot send an empty message.", title="Input Error", severity="error")
@@ -510,7 +513,8 @@ class ChatView(Container):
 
         history_for_llm = self._get_effective_history_for_llm()
 
-        message_for_llm = full_user_text_from_input.strip()
+        context_block_content = self._build_context_block_string()
+        message_for_llm = context_block_content + user_typed_message
 
         input_widget.value = ""
         self.active_contexts.clear()
@@ -602,7 +606,7 @@ class ChatView(Container):
                 )
 
             if content_str:
-                await self._set_context_for_input(
+                self._set_context_for_input(
                     context_type_key, coll, content_str, num_docs=num_docs_for_title
                 )
                 self._log_chat_message(
@@ -612,7 +616,7 @@ class ChatView(Container):
                 )
                 self.app.notify(
                     f"{context_type_key.replace('_', ' ').capitalize()}"
-                    f" for '{coll}' added/updated in input.",
+                    f" for '{coll}' added/updated for next message.",
                     title="Context Added",
                 )
                 button.label = Text(
@@ -652,7 +656,6 @@ class ChatView(Container):
     async def _fetch_schema_and_stats_if_needed(
         self, collection_name: str
     ) -> Tuple[Optional[Dict], Optional[Dict]]:
-        """Fetches schema and stats for a collection, prioritizing cached app results."""
         if not (self.app.current_mongo_uri and self.app.current_db_name):
             return None, None
 
@@ -796,14 +799,13 @@ class ChatView(Container):
             )
             return None
 
-    async def _set_context_for_input(
+    def _set_context_for_input(
         self,
         context_type_key: str,
         collection_name: str,
         content: str,
         num_docs: Optional[int] = None,
     ) -> None:
-        """Updates the internal storage of active contexts and refreshes the input field."""
         self.active_contexts[context_type_key] = {
             "collection": collection_name,
             "content": content,
@@ -811,27 +813,11 @@ class ChatView(Container):
         }
         self._apply_contexts_to_input_field()
 
-    def _strip_existing_context_block(self, text: str) -> str:
-        """Removes the entire app-provided context block from the text, returning the user's part."""
-        try:
-            start_idx = text.index(self.CONTEXT_BLOCK_START_MARKER)
-            end_idx = text.index(self.CONTEXT_BLOCK_END_MARKER, start_idx) + len(
-                self.CONTEXT_BLOCK_END_MARKER
-            )
-
-            if start_idx == 0:
-                return text[end_idx:]
-            return text
-        except ValueError:
-            return text
-
     def _build_context_block_string(self) -> str:
-        """Builds the full context block string from self.active_contexts."""
         if not self.active_contexts:
             return ""
 
         block_content_parts = []
-
         ordered_keys = [
             self.SCHEMA_SECTION_KEY,
             self.METADATA_SECTION_KEY,
@@ -842,35 +828,59 @@ class ChatView(Container):
             if key in self.active_contexts:
                 context_item = self.active_contexts[key]
                 title_template = self.SECTION_TITLE_TEMPLATES[key]
-
                 title_args = {"collection_name": context_item["collection"]}
                 if key == self.SAMPLEDOCS_SECTION_KEY and context_item.get("num_docs") is not None:
                     title_args["num_docs"] = context_item["num_docs"]
-
                 section_title = title_template.format(**title_args)
                 block_content_parts.append(
                     f"{section_title}```json\n{context_item['content']}\n```\n"
                 )
-
         if not block_content_parts:
             return ""
-
         return (
             self.CONTEXT_BLOCK_START_MARKER
             + "\n".join(block_content_parts)
             + self.CONTEXT_BLOCK_END_MARKER
         )
 
+    def _update_active_context_indicator(self) -> None:
+        try:
+            indicator_label = self.query_one("#active_context_indicator_label", Static)
+            if not self.active_contexts:
+                indicator_label.update("")
+                indicator_label.display = False
+                return
+
+            active_items = []
+            ordered_keys = [
+                self.SCHEMA_SECTION_KEY,
+                self.METADATA_SECTION_KEY,
+                self.SAMPLEDOCS_SECTION_KEY,
+            ]
+            for key in ordered_keys:
+                if key in self.active_contexts:
+                    item = self.active_contexts[key]
+                    coll_name = item["collection"]
+                    key_display = key.replace("_", " ").capitalize()
+                    if key == self.SAMPLEDOCS_SECTION_KEY and item.get("num_docs") is not None:
+                        active_items.append(f"{key_display} ({item['num_docs']}) for '{coll_name}'")
+                    else:
+                        active_items.append(f"{key_display} for '{coll_name}'")
+
+            if active_items:
+                indicator_text = "Prepending: " + "; ".join(active_items)
+                indicator_label.update(Text(indicator_text, style="italic dim"))
+                indicator_label.display = True
+            else:
+                indicator_label.update("")
+                indicator_label.display = False
+        except NoMatches:
+            logger.warning("Active context indicator label not found.")
+
     def _apply_contexts_to_input_field(self) -> None:
-        """Reconstructs the chat input field value based on active_contexts and the user's previous text."""
+        self._update_active_context_indicator()
         try:
             input_widget = self.query_one("#chat_message_input", Input)
-            current_full_value = input_widget.value
-
-            user_typed_part = self._strip_existing_context_block(current_full_value)
-            new_context_block_str = self._build_context_block_string()
-
-            input_widget.value = new_context_block_str + user_typed_part
             if self.app.focused is input_widget:
                 input_widget.action_end()
         except NoMatches:
@@ -900,9 +910,9 @@ class ChatView(Container):
         self._reset_chat_log_and_status("New session started. LLM (re)configuring...")
         try:
             self.query_one("#chat_message_input", Input).value = ""
-            self._apply_contexts_to_input_field()
         except NoMatches:
             pass
+        self._apply_contexts_to_input_field()
         if self._create_and_set_llm_client():
             self._log_chat_message(self.ROLE_SYSTEM, "LLM client (re)configured for new session.")
             self._update_chat_status_line(status="Ready")
