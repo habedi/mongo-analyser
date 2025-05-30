@@ -1,11 +1,12 @@
 import logging
 from typing import Optional
 
-from mongo_analyser.core.shared import redact_uri_password
 from pymongo import MongoClient
 from pymongo.database import Database as PyMongoDatabase
 from pymongo.errors import ConfigurationError, ConnectionFailure, OperationFailure
 from pymongo.server_api import ServerApi
+
+from mongo_analyser.core.shared import redact_uri_password
 
 logger = logging.getLogger(__name__)
 
