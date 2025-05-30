@@ -1,9 +1,11 @@
 import logging
 from typing import Optional
 
+from mongo_analyser.core.shared import redact_uri_password
 from pymongo import MongoClient
 from pymongo.database import Database as PyMongoDatabase
-from pymongo.errors import ConnectionFailure, OperationFailure
+from pymongo.errors import ConfigurationError, ConnectionFailure, OperationFailure
+from pymongo.server_api import ServerApi
 
 logger = logging.getLogger(__name__)
 
@@ -23,132 +25,156 @@ def db_connection_active(
 ) -> bool:
     global _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name
 
+    redacted_uri_for_log = redact_uri_password(uri)
+
     if not force_reconnect and _client is not None and _db is not None and _current_uri == uri:
-        target_db_name_for_check = (
-            db_name if db_name else (_current_resolved_db_name or _client.get_database().name)
-        )
+        target_db_name_for_check = db_name if db_name else _current_resolved_db_name
 
         if _db.name == target_db_name_for_check:
             try:
                 _client.admin.command("ping")
                 logger.debug(
-                    f"Already connected to MongoDB (URI: {_current_uri}, DB: {_db.name})."
-                    f" Ping was successful."
+                    f"Already connected to MongoDB (URI: {redacted_uri_for_log}, DB: {_db.name}). Ping OK."
                 )
-                _current_resolved_db_name = _db.name
                 return True
             except (ConnectionFailure, OperationFailure) as e:
-                logger.warning(
-                    f"Existing MongoDB connection ping failed: {e}. Attempting to re-establish."
-                )
-                _client = None
-                _db = None
+                logger.warning(f"Existing MongoDB connection ping failed: {e}. Reconnecting.")
+                _client, _db = None, None
         elif db_name and _db.name != db_name:
             logger.info(
                 f"Switching DB context on existing client from '{_db.name}' to '{db_name}'."
             )
             try:
                 _db = _client[db_name]
+                _client.admin.command("ping")
                 _current_db_name_arg = db_name
                 _current_resolved_db_name = _db.name
                 logger.info(f"Successfully switched DB context to '{_db.name}'.")
                 return True
             except Exception as e:
-                logger.error(f"Failed to switch DB context to '{db_name}': {e}")
-                _client = None
-                _db = None
+                logger.error(f"Failed to switch DB context to '{db_name}' or ping failed: {e}")
+                _client, _db = None, None
+        else:
+            _client, _db = None, None
 
     if _client is not None:
         _client.close()
-        _client = None
-        _db = None
+        _client, _db = None, None
 
     _current_uri = None
     _current_db_name_arg = None
     _current_resolved_db_name = None
 
     try:
-        logger.info(f"Attempting to connect to MongoDB: {uri}, target DB specified: {db_name}")
-        client_options = {"serverSelectionTimeoutMS": server_timeout_ms, **kwargs}
+        logger.info(
+            f"Attempting to connect to MongoDB: {redacted_uri_for_log}, TUI DB specified: {db_name}"
+        )
 
-        temp_client = MongoClient(uri, **client_options)
+        client_connect_options = {"serverSelectionTimeoutMS": server_timeout_ms, **kwargs}
+        if uri.startswith("mongodb+srv://"):
+            client_connect_options["server_api"] = ServerApi("1")
+            logger.debug("SRV URI detected, applying ServerApi('1') option.")
 
-        db_to_use_name: Optional[str] = None
-        parsed_uri = temp_client.HOST
+        temp_client = MongoClient(uri, **client_connect_options)
+
+        db_to_connect_to: Optional[str] = None
 
         if db_name:
-            db_to_use_name = db_name
-        elif parsed_uri and isinstance(parsed_uri, tuple) and len(parsed_uri) > 2 and parsed_uri[2]:
-            if temp_client.get_database().name != "test" or "test" in uri.lower():
-                db_to_use_name = temp_client.get_database().name
+            db_to_connect_to = db_name
+            logger.info(
+                f"Using database name explicitly provided via TUI/argument: '{db_to_connect_to}'"
+            )
+        else:
+            try:
+                db_from_uri_path = temp_client.get_database().name
+                logger.info(f"Database name resolved from URI path: '{db_from_uri_path}'")
+                db_to_connect_to = db_from_uri_path
 
-            uri_path_part = uri.split("//", 1)[-1].split("/", 1)[-1].split("?", 1)[0]
-            if uri_path_part and uri_path_part != temp_client.get_database().name and not db_name:
-                if "/" not in uri_path_part:
-                    db_to_use_name = uri_path_part
-
-        if not db_to_use_name and not db_name:
-            default_db_from_client = temp_client.get_database()
-            if default_db_from_client:
-                db_to_use_name = default_db_from_client.name
-                logger.info(
-                    f"No explicit DB in URI path or args, using default from client: {db_to_use_name}"
-                )
-            else:
+                if db_from_uri_path.lower() in ("admin", "test", "config", "local"):
+                    logger.warning(
+                        f"URI resolved to default/system database '{db_from_uri_path}'. "
+                        "If this is not your target data DB, please specify one in the TUI."
+                    )
+            except ConfigurationError:
                 logger.error(
-                    f"No database name specified in URI ('{uri}') or as an argument,"
-                    f" and no default resolvable. Cannot determine database context."
+                    f"MongoDB URI ('{redacted_uri_for_log}') does not specify a default database path, "
+                    "and no database name was provided via the TUI. Cannot determine database context."
                 )
                 temp_client.close()
+
                 return False
 
-        if not db_to_use_name:
+        if not db_to_connect_to:
             logger.error(
-                f"Critical: Database name could not be resolved for URI '{uri}' and db_name arg '{db_name}'."
+                f"Fatal: Database name could not be determined for URI '{redacted_uri_for_log}'."
             )
             temp_client.close()
             return False
 
         temp_client.admin.command("ping")
+        logger.debug("MongoDB server ping successful.")
+
+        target_db_object = temp_client[db_to_connect_to]
 
         _client = temp_client
-        _db = _client[db_to_use_name]
+        _db = target_db_object
         _current_uri = uri
         _current_db_name_arg = db_name
         _current_resolved_db_name = _db.name
 
         logger.info(
-            f"Successfully connected to MongoDB server. URI: '{uri}', Effective DB: '{_current_resolved_db_name}'."
+            f"Successfully connected to MongoDB server. URI: '{redacted_uri_for_log}', "
+            f"Effective DB Context: '{_current_resolved_db_name}'."
         )
         return True
+
+    except ConfigurationError as e:
+        logger.error(f"MongoDB client configuration error for URI '{redacted_uri_for_log}': {e}")
+        if _client:
+            _client.close()
+        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        return False
     except (ConnectionFailure, OperationFailure) as e:
         logger.error(
-            f"MongoDB connection/ping failed for URI '{uri}', target DB '{db_name or db_to_use_name}': {e}"
+            f"MongoDB connection/operation failure for URI '{redacted_uri_for_log}',"
+            f" target DB '{db_name or 'from URI'}': {e}"
         )
-        if _client is not None:
+        if _client:
             _client.close()
-        _client = None
-        _db = None
-        _current_uri = None
-        _current_db_name_arg = None
-        _current_resolved_db_name = None
+        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
         return False
     except Exception as e:
         logger.error(f"Unexpected error during MongoDB connection: {e}", exc_info=True)
-        if _client is not None:
+        if _client:
             _client.close()
-        _client = None
-        _db = None
-        _current_uri = None
-        _current_db_name_arg = None
-        _current_resolved_db_name = None
+        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
         return False
 
 
 def get_mongo_db() -> PyMongoDatabase:
-    global _current_uri, _db, _client
+    global _client, _db
     if _db is None or _client is None:
-        raise ConnectionError("Not connected to MongoDB. Call db_connection_active first.")
+        raise ConnectionError(
+            "Not connected to MongoDB or connection lost. Call db_connection_active first or reconnect."
+        )
     try:
         _client.admin.command({"ping": 1})
     except (ConnectionFailure, OperationFailure) as e:

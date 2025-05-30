@@ -2,10 +2,12 @@ import json
 import logging
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from mongo_analyser.core.extractor import get_newest_documents
 from mongo_analyser.dialogs import ErrorDialog
+from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
+from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -26,11 +28,21 @@ from textual.worker import Worker, WorkerCancelled
 logger = logging.getLogger(__name__)
 
 
+def _is_auth_error_from_op_failure_de(e: PyMongoOperationFailure) -> bool:
+    if e.code == 13:
+        return True
+    error_msg_lower = str(e).lower()
+    if "not authorized" in error_msg_lower or "unauthorized" in error_msg_lower:
+        return True
+    return False
+
+
 class DataExplorerView(Container):
     sample_documents: reactive[List[Dict[str, Any]]] = reactive([])
     current_document_index: reactive[int] = reactive(0)
     status_message = reactive(Text("Select a collection and fetch documents."))
     feedback_message = reactive(Text(""))
+    _feedback_timer_de: Optional[Any] = None
 
     def _get_default_sample_save_path(self) -> str:
         db_name = self.app.current_db_name
@@ -88,41 +100,59 @@ class DataExplorerView(Container):
             select_widget = self.query_one("#data_explorer_collection_select", Select)
             save_path_input = self.query_one("#sample_docs_save_path_input", Input)
             collections = self.app.available_collections
-            if collections == self._last_collections:
-                current_active_coll = (
-                    str(select_widget.value)
-                    if select_widget.value != Select.BLANK
-                    else self.app.active_collection
-                )
-                save_path_input.value = self._get_path_for_collection_output(current_active_coll)
-                return
-            self._last_collections = list(collections)
-            if collections:
-                options = [(c, c) for c in collections]
-                current_value = select_widget.value
-                select_widget.set_options(options)
-                select_widget.disabled = False
-                select_widget.prompt = "Select Collection"
-                active_app_coll = self.app.active_collection
-                if active_app_coll in collections:
-                    select_widget.value = active_app_coll
-                elif current_value in collections:
-                    select_widget.value = current_value
-                else:
-                    select_widget.value = Select.BLANK
-            else:
-                select_widget.set_options([])
-                select_widget.prompt = "Connect to DB to see collections"
-                select_widget.disabled = True
-                select_widget.value = Select.BLANK
-            current_selected_coll = (
+
+            current_selection_in_widget = (
                 str(select_widget.value) if select_widget.value != Select.BLANK else None
             )
-            save_path_input.value = self._get_path_for_collection_output(
-                current_selected_coll or self.app.active_collection
+            app_active_collection = self.app.active_collection
+
+            needs_options_update = collections != self._last_collections
+            needs_value_update = (
+                app_active_collection != current_selection_in_widget
+                and app_active_collection in collections
             )
-            self.sample_documents = []
-            self.status_message = Text("Select a collection and fetch documents.")
+
+            if not needs_options_update and not needs_value_update:
+                if app_active_collection != current_selection_in_widget:
+                    save_path_input.value = self._get_path_for_collection_output(
+                        current_selection_in_widget
+                    )
+                return
+
+            if needs_options_update:
+                self._last_collections = list(collections)
+                if collections:
+                    options = [(c, c) for c in collections]
+                    select_widget.set_options(options)
+                    select_widget.disabled = False
+                    select_widget.prompt = "Select Collection"
+                else:
+                    select_widget.set_options([])
+                    select_widget.prompt = "Connect to DB to see collections"
+                    select_widget.disabled = True
+                    select_widget.value = Select.BLANK
+
+            if app_active_collection and app_active_collection in self._last_collections:
+                select_widget.value = app_active_collection
+            elif (
+                current_selection_in_widget
+                and current_selection_in_widget in self._last_collections
+            ):
+                pass
+            elif self._last_collections:
+                select_widget.value = Select.BLANK
+
+            final_selection_for_path = (
+                str(select_widget.value) if select_widget.value != Select.BLANK else None
+            )
+            save_path_input.value = self._get_path_for_collection_output(final_selection_for_path)
+
+            if needs_options_update or (
+                select_widget.value == Select.BLANK and self.sample_documents
+            ):
+                self.sample_documents = []
+                self.status_message = Text("Select a collection and fetch documents.")
+
         except NoMatches:
             logger.warning("DataExplorerView: Select or save path input not found for update.")
         except Exception as e:
@@ -141,11 +171,13 @@ class DataExplorerView(Container):
         new_coll = str(event.value) if event.value != Select.BLANK else None
         if new_coll != self.app.active_collection:
             self.app.active_collection = new_coll
+
         try:
             save_path_input = self.query_one("#sample_docs_save_path_input", Input)
             save_path_input.value = self._get_path_for_collection_output(new_coll)
         except NoMatches:
             logger.warning("DataExplorerView: Save path input not found during collection change.")
+
         self.sample_documents = []
         self.status_message = Text("Collection changed. Fetch new sample documents.")
         self.feedback_message = Text("")
@@ -200,32 +232,59 @@ class DataExplorerView(Container):
         self.sample_documents = []
         loader.display = True
 
+        fetched_docs_result: Optional[List[Dict[str, Any]]] = None
+        error_message_str: Optional[str] = None
+        is_auth_issue = False
+
         try:
             worker: Worker[List[Dict[str, Any]]] = self.app.run_worker(
                 partial(get_newest_documents, uri, db_name, collection_name, sample_size),
                 thread=True,
                 group="doc_fetch",
             )
-            fetched_docs = await worker.wait()
+            fetched_docs_result = await worker.wait()
 
             if worker.is_cancelled:
                 self.status_message = Text("Document fetching cancelled.")
-                return
+            elif fetched_docs_result is not None:
+                self.sample_documents = fetched_docs_result
+                if not fetched_docs_result:
+                    self.status_message = Text(f"No documents found in '{collection_name}'.")
+                else:
+                    self.status_message = Text(f"Fetched {len(fetched_docs_result)} documents.")
 
-            self.sample_documents = fetched_docs
-            if not fetched_docs:
-                self.status_message = Text(f"No documents found in '{collection_name}'.")
-            else:
-                self.status_message = Text(f"Fetched {len(fetched_docs)} documents.")
         except WorkerCancelled:
             self.status_message = Text("Document fetching cancelled during operation.")
+        except PyMongoOperationFailure as e_op:
+            logger.warning(
+                f"DataExplorer: MongoDB operation failure fetching for '{collection_name}': {e_op}"
+            )
+            is_auth_issue = _is_auth_error_from_op_failure_de(e_op)
+            err_details = e_op.details.get("errmsg", str(e_op)) if e_op.details else str(e_op)
+            error_message_str = (
+                f"Not authorized to read from collection '{collection_name}'."
+                if is_auth_issue
+                else f"Operation failed on '{collection_name}': {err_details}"
+            )
+        except (PyMongoConnectionFailure, ConnectionError) as e_conn:
+            logger.error(
+                f"DataExplorer: Connection error fetching for '{collection_name}': {e_conn}",
+                exc_info=True,
+            )
+            error_message_str = f"Database Connection Error: {e_conn!s}"
         except Exception as e:
-            logger.error(f"Error fetching documents: {e}", exc_info=True)
-            self.status_message = Text.from_markup(f"[#BF616A]Error: {str(e)[:100]}[/]")
-            await self.app.push_screen(ErrorDialog("Fetch Error", str(e)))
+            logger.error(
+                f"Unexpected error fetching documents for '{collection_name}': {e}", exc_info=True
+            )
+            error_message_str = f"Unexpected error: {e!s}"
         finally:
             if self.is_mounted:
                 loader.display = False
+
+        if error_message_str:
+            self.status_message = Text.from_markup(f"[#BF616A]Error: {error_message_str[:100]}[/]")
+            dialog_title = "Authorization Error" if is_auth_issue else "Fetch Error"
+            await self.app.push_screen(ErrorDialog(dialog_title, error_message_str))
 
     def _update_document_view(self) -> None:
         try:
@@ -241,9 +300,7 @@ class DataExplorerView(Container):
         except NoMatches:
             logger.warning("DataExplorerView: Markdown view not found for update.")
         except IndexError:
-            logger.warning(
-                "DataExplorerView: current_document_index out of bounds during view update."
-            )
+            logger.warning("DataExplorerView: current_document_index out of bounds.")
             if self.is_mounted:
                 try:
                     self.query_one("#document_json_view", Markdown).update("```json\n{}\n```")
@@ -373,26 +430,32 @@ class DataExplorerView(Container):
             try:
                 feedback_label = self.query_one("#data_explorer_feedback_label", Static)
                 feedback_label.update(new_feedback)
+                if self._feedback_timer_de is not None:
+                    self._feedback_timer_de.stop_no_wait()
+                    self._feedback_timer_de = None
                 if new_feedback.plain:
-                    self.set_timer(4, lambda: setattr(self, "feedback_message", Text("")))
+                    self._feedback_timer_de = self.set_timer(
+                        4, lambda: setattr(self, "feedback_message", Text(""))
+                    )
             except NoMatches:
                 pass
             except Exception as e:
-                logger.error(f"Error in watch_feedback_message: {e}", exc_info=True)
+                logger.error(f"Error in watch_feedback_message (DataExplorer): {e}", exc_info=True)
 
     def watch_sample_documents(
         self,
         old_docs: List[Dict[str, Any]],
         new_docs: List[Dict[str, Any]],
     ) -> None:
-        if old_docs != new_docs:
+        if old_docs != new_docs or (not new_docs and self.current_document_index != 0):
             logger.debug(
                 f"DataExplorerView: sample_documents changed. Old len: {len(old_docs)}, New len: {len(new_docs)}"
             )
             self.current_document_index = 0
             self._update_document_view()
             self._update_doc_nav_buttons_and_label()
-            self.feedback_message = Text("")
+            if self.is_mounted:
+                self.feedback_message = Text("")
 
     def watch_current_document_index(self, old_idx: int, new_idx: int) -> None:
         if old_idx != new_idx and self.is_mounted:

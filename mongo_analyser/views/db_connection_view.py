@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from mongo_analyser.core import db as core_db_manager
 from mongo_analyser.core.shared import redact_uri_password
 from mongo_analyser.dialogs import ErrorDialog
+from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
 from textual import on
@@ -16,6 +17,16 @@ from textual.widgets import Button, DataTable, Input, Label, Static
 from textual.worker import Worker, WorkerCancelled
 
 logger = logging.getLogger(__name__)
+
+
+def _is_auth_error(e: PyMongoOperationFailure) -> bool:
+    """Checks if a PyMongoOperationFailure is likely an authorization error."""
+    if e.code == 13:
+        return True
+    error_msg_lower = str(e).lower()
+    if "not authorized" in error_msg_lower or "unauthorized" in error_msg_lower:
+        return True
+    return False
 
 
 class DBConnectionView(Container):
@@ -128,15 +139,25 @@ class DBConnectionView(Container):
         collections_with_stats: List[Dict[str, Any]] = []
         final_status_message: Text
         connection_is_meaningful_for_analyser = False
-
         redacted_uri_for_log = redact_uri_password(uri)
+        self._last_connect_error_msg = ""
 
         if not core_db_manager.db_connection_active(
             uri=uri, db_name=db_name_from_input, server_timeout_ms=3000, force_reconnect=True
         ):
-            final_status_message = Text.from_markup(
-                f"[#BF616A]Connection Failed: Could not connect to MongoDB server at {redacted_uri_for_log}[/]"
-            )
+            if "Cannot determine database context" in getattr(
+                self, "_internal_db_conn_error_reason", ""
+            ):
+                final_status_message = Text.from_markup(
+                    f"[#BF616A]Connection Failed: MongoDB URI ('{redacted_uri_for_log}') does not specify a default database path, "
+                    "and no database name was provided. Please specify a database."
+                )
+                self._last_connect_error_msg = final_status_message.plain
+            else:
+                final_status_message = Text.from_markup(
+                    f"[#BF616A]Connection Failed: Could not connect to MongoDB server at {redacted_uri_for_log}[/]"
+                )
+                self._last_connect_error_msg = final_status_message.plain
             return False, final_status_message, [], None, None
 
         client = core_db_manager.get_mongo_client()
@@ -146,6 +167,7 @@ class DBConnectionView(Container):
             final_status_message = Text.from_markup(
                 "[#BF616A]Internal Error: Could not retrieve active MongoDB client/db after connection attempt.[/]"
             )
+            self._last_connect_error_msg = final_status_message.plain
             return (
                 False,
                 final_status_message,
@@ -156,7 +178,6 @@ class DBConnectionView(Container):
 
         actual_db_name = db_instance.name
         connected_uri = core_db_manager.get_current_uri()
-        redacted_connected_uri_for_log = redact_uri_password(connected_uri or "unknown URI")
 
         try:
             collection_names_list = sorted(db_instance.list_collection_names())
@@ -164,11 +185,18 @@ class DBConnectionView(Container):
 
             if collection_names_list:
                 for name in collection_names_list:
+                    coll_stat_entry = {
+                        "name": name,
+                        "count": "N/A",
+                        "avgObjSize": "N/A",
+                        "size": "N/A",
+                        "storageSize": "N/A",
+                        "nindexes": "N/A",
+                    }
                     try:
                         coll_stats = db_instance.command("collStats", name)
-                        collections_with_stats.append(
+                        coll_stat_entry.update(
                             {
-                                "name": name,
                                 "count": coll_stats.get("count", "N/A"),
                                 "avgObjSize": _format_bytes_tui(coll_stats.get("avgObjSize")),
                                 "size": _format_bytes_tui(coll_stats.get("size")),
@@ -176,108 +204,104 @@ class DBConnectionView(Container):
                                 "nindexes": str(coll_stats.get("nindexes", "N/A")),
                             }
                         )
-                    except Exception as e_stats:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Could not get stats for collection '%s' in DB '%s': %s",
-                                name,
-                                actual_db_name,
-                                e_stats,
+                    except PyMongoOperationFailure as e_stats:
+                        logger.warning(
+                            "Could not get stats for collection '%s' in DB '%s': %s",
+                            name,
+                            actual_db_name,
+                            e_stats,
+                        )
+                        if _is_auth_error(e_stats):
+                            coll_stat_entry.update(
+                                {
+                                    k: "Unauthorized"
+                                    for k in [
+                                        "count",
+                                        "avgObjSize",
+                                        "size",
+                                        "storageSize",
+                                        "nindexes",
+                                    ]
+                                }
                             )
-                        collections_with_stats.append(
+
+                        else:
+                            coll_stat_entry.update(
+                                {
+                                    k: "Err(Stats)"
+                                    for k in [
+                                        "count",
+                                        "avgObjSize",
+                                        "size",
+                                        "storageSize",
+                                        "nindexes",
+                                    ]
+                                }
+                            )
+                    except Exception as e_stats_other:
+                        logger.warning(
+                            "Unexpected error getting stats for collection '%s' in DB '%s': %s",
+                            name,
+                            actual_db_name,
+                            e_stats_other,
+                            exc_info=True,
+                        )
+                        coll_stat_entry.update(
                             {
-                                "name": name,
-                                "count": "Err",
-                                "avgObjSize": "Err",
-                                "size": "Err",
-                                "storageSize": "Err",
-                                "nindexes": "Err",
+                                k: "Err(Stats)"
+                                for k in ["count", "avgObjSize", "size", "storageSize", "nindexes"]
                             }
                         )
+                    collections_with_stats.append(coll_stat_entry)
                 final_status_message = Text.from_markup(
-                    f"[#A3BE8C]Connected to {redacted_connected_uri_for_log} (DB: {actual_db_name}). "
+                    f"[#A3BE8C]Connected to {redact_uri_password(connected_uri or 'unknown URI')} (DB: {actual_db_name}). "
                     f"{len(collection_names_list)} collection(s) found.[/]"
                 )
             else:
-                db_exists_on_server = False
-                try:
-                    server_db_names = client.list_database_names()
-                    if actual_db_name in server_db_names:
-                        db_exists_on_server = True
-                except PyMongoOperationFailure as e_list_dbs:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Could not list databases (permission issue?): %s", e_list_dbs
-                        )
-
-                    final_status_message = Text.from_markup(
-                        f"[#EBCB8B]Connected to DB: '{actual_db_name}' at {redacted_connected_uri_for_log}. "
-                        f"No collections found. (Unable to verify DB existence due to permissions)[/]"
-                    )
-                except Exception as e_list_dbs_unexpected:
-                    if logger.isEnabledFor(logging.ERROR):
-                        logger.error(
-                            "Unexpected error listing database names: %s",
-                            e_list_dbs_unexpected,
-                            exc_info=True,
-                        )
-                    final_status_message = Text.from_markup(
-                        f"[#D08770]Connected to DB: '{actual_db_name}' at {redacted_connected_uri_for_log}. "
-                        f"No collections found. (Error verifying DB existence)[/]"
-                    )
-                else:
-                    if db_exists_on_server:
-                        final_status_message = Text.from_markup(
-                            f"[#A3BE8C]Connected to DB: '{actual_db_name}' at {redacted_connected_uri_for_log}. "
-                            f"This database exists but is currently empty (no collections).[/]"
-                        )
-                    else:
-                        final_status_message = Text.from_markup(
-                            f"[#D08770]Connected to MongoDB server at {redacted_connected_uri_for_log}. "
-                            f"However, the database '{actual_db_name}' does not appear to exist on the server.[/]"
-                        )
-                        connection_is_meaningful_for_analyser = False
-
+                final_status_message = Text.from_markup(
+                    f"[#A3BE8C]Connected to DB: '{actual_db_name}' at {redact_uri_password(connected_uri or 'unknown URI')}. "
+                    f"This database is empty (no collections).[/]"
+                )
         except PyMongoOperationFailure as e_list_coll:
             connection_is_meaningful_for_analyser = False
-            if (
-                "not authorized" in str(e_list_coll).lower()
-                or getattr(e_list_coll, "code", None) == 13
-            ):
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        "User not authorized to list collections for DB '%s': %s",
-                        actual_db_name,
-                        e_list_coll,
-                    )
+
+            logger.error(
+                "MongoDB operation failure listing collections for DB '%s': %s",
+                actual_db_name,
+                e_list_coll,
+                exc_info=not _is_auth_error(e_list_coll),
+            )
+            if _is_auth_error(e_list_coll):
                 final_status_message = Text.from_markup(
-                    f"[#BF616A]Connected to server ({redacted_connected_uri_for_log}). However, you are not authorized "
+                    f"[#BF616A]Connected to server ({redact_uri_password(connected_uri or 'unknown URI')}). However, user is not authorized "
                     f"to list collections in database '{actual_db_name}'. Please check permissions.[/]"
                 )
             else:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        "MongoDB operation failure listing collections for DB '%s': %s",
-                        actual_db_name,
-                        e_list_coll,
-                        exc_info=True,
-                    )
+                err_details = (
+                    e_list_coll.details.get("errmsg", str(e_list_coll))
+                    if e_list_coll.details
+                    else str(e_list_coll)
+                )
                 final_status_message = Text.from_markup(
-                    f"[#BF616A]Connected ({redacted_connected_uri_for_log}, DB: {actual_db_name}), but an error occurred "
-                    f"listing collections: {str(e_list_coll)[:70]}[/]"
+                    f"[#BF616A]Connected ({redact_uri_password(connected_uri or 'unknown URI')}, DB: {actual_db_name}), but an error occurred "
+                    f"listing collections: {str(err_details)[:70]}[/]"
                 )
         except Exception as e_generic_list_coll:
             connection_is_meaningful_for_analyser = False
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Unexpected error listing collections for DB '%s': %s",
-                    actual_db_name,
-                    e_generic_list_coll,
-                    exc_info=True,
-                )
+            logger.error(
+                "Unexpected error listing collections for DB '%s': %s",
+                actual_db_name,
+                e_generic_list_coll,
+                exc_info=True,
+            )
             final_status_message = Text.from_markup(
-                f"[#BF616A]Connected ({redacted_connected_uri_for_log}, DB: {actual_db_name}), but an unexpected error "
-                f"occurred while listing collections.[/]"
+                f"[#BF616A]Connected ({redact_uri_password(connected_uri or 'unknown URI')}, DB: {actual_db_name}), but an unexpected error "
+                f"occurred while listing collections: {str(e_generic_list_coll)[:70]}[/]"
+            )
+
+        if not connection_is_meaningful_for_analyser:
+            self._last_connect_error_msg = (
+                final_status_message.plain if final_status_message else "Unknown connection error"
             )
 
         return (
@@ -338,7 +362,6 @@ class DBConnectionView(Container):
                     self.connection_status = Text.from_markup(
                         "[#D08770]Connection attempt cancelled.[/]"
                     )
-
                     self.app.current_mongo_uri = None
                     self.app.current_db_name = None
                     self.app.available_collections = []
@@ -354,9 +377,9 @@ class DBConnectionView(Container):
                         item["name"] for item in collections_stats_data
                     ]
 
+                    collections_title.visible = True
+                    collections_table.visible = True
                     if collections_stats_data:
-                        collections_title.visible = True
-                        collections_table.visible = True
                         for coll_data in collections_stats_data:
                             collections_table.add_row(
                                 coll_data["name"],
@@ -368,11 +391,8 @@ class DBConnectionView(Container):
                                 key=coll_data["name"],
                             )
                     else:
-                        collections_title.visible = True
-                        collections_table.visible = True
-
                         no_coll_msg = "No collections found in this database."
-                        if (
+                        if status_msg_text and (
                             "empty" in status_msg_text.plain.lower()
                             or "no collections" in status_msg_text.plain.lower()
                         ):
@@ -394,7 +414,6 @@ class DBConnectionView(Container):
                         "",
                         "",
                     )
-
                 else:
                     self.app.current_mongo_uri = None
                     self.app.current_db_name = None
@@ -421,24 +440,34 @@ class DBConnectionView(Container):
                 err_text_display = Text.from_markup(f"[#BF616A]Error: {str(e)[:100]}[/]")
                 self.connection_status = err_text_display
                 collections_table.clear()
-                collections_table.add_row(err_text_display.plain, "", "", "", "", "")
+                collections_table.add_row(
+                    err_text_display.plain if err_text_display else "Connection Error",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                )
+                collections_title.visible = True
+                collections_table.visible = True
                 await self.app.push_screen(ErrorDialog("Connection Error", str(e)))
 
     @on(DataTable.RowSelected, "#collections_data_table")
     async def on_collection_selected_in_table(self, event: DataTable.RowSelected) -> None:
         if event.control.id != "collections_data_table":
             return
+
+        indexes_table = self.query_one("#indexes_data_table", DataTable)
+        indexes_title = self.query_one("#indexes_title_label", Label)
+
         if not event.row_key or not event.row_key.value:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Collection selection event with no row key or value, possibly header/empty row click."
-                )
-
-            indexes_table = self.query_one("#indexes_data_table", DataTable)
+                logger.debug("Collection selection event with no row key or value.")
             indexes_table.clear()
-            self.query_one("#indexes_title_label", Label).visible = False
+            indexes_title.visible = False
             indexes_table.visible = False
-            self.app.active_collection = None
+            if self.app.active_collection is not None:
+                self.app.active_collection = None
             return
 
         selected_collection_name = str(event.row_key.value)
@@ -446,15 +475,15 @@ class DBConnectionView(Container):
         if selected_collection_name not in self.app.available_collections:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Clicked row '%s' is not in available collections. Ignoring for index loading.",
+                    "Clicked row '%s' is not an available collection name (e.g., 'Unauthorized' or message row). Ignoring for index loading.",
                     selected_collection_name,
                 )
 
-            indexes_table = self.query_one("#indexes_data_table", DataTable)
             indexes_table.clear()
-            self.query_one("#indexes_title_label", Label).visible = False
+            indexes_title.visible = False
             indexes_table.visible = False
-            self.app.active_collection = None
+            if self.app.active_collection is not None:
+                self.app.active_collection = None
             return
 
         if selected_collection_name == self.app.active_collection:
@@ -474,7 +503,7 @@ class DBConnectionView(Container):
         if not uri or not db_name_app:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Cannot load indexes for '%s': MongoDB not connected or DB name unknown in app state.",
+                    "Cannot load indexes for '%s': MongoDB not connected or DB name unknown.",
                     collection_name,
                 )
             indexes_title.visible = False
@@ -498,14 +527,12 @@ class DBConnectionView(Container):
             if db_instance.name != db_name_app:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        "DB context mismatch after re-verifying connection. Expected '%s', got '%s' for index listing of '%s'.",
+                        "DB context mismatch. Expected '%s', got '%s' for index listing of '%s'.",
                         db_name_app,
                         db_instance.name,
                         collection_name,
                     )
-                raise ConnectionError(
-                    f"DB context mismatch. Expected {db_name_app} for index listing."
-                )
+                raise ConnectionError(f"DB context mismatch. Expected {db_name_app}.")
 
             collection_obj = db_instance[collection_name]
 
@@ -520,7 +547,6 @@ class DBConnectionView(Container):
                 description=f"Loading indexes for {collection_name}",
             )
             raw_indexes = await worker.wait()
-
             indexes_table.clear()
 
             if worker.is_cancelled:
@@ -536,10 +562,7 @@ class DBConnectionView(Container):
 
             if not raw_indexes:
                 indexes_table.add_row(
-                    Text(
-                        f"No indexes found for '{collection_name}' (other than default _id if not listed).",
-                        style="italic",
-                    ),
+                    Text(f"No indexes found for '{collection_name}'.", style="italic"),
                     "",
                     "",
                     "",
@@ -551,9 +574,7 @@ class DBConnectionView(Container):
             for idx_info in raw_indexes:
                 key_dict = idx_info.get("key", {})
                 key_str = ", ".join([f"{k}: {v}" for k, v in key_dict.items()])
-
                 other_props_list = []
-
                 excluded_fields = [
                     "v",
                     "key",
@@ -565,6 +586,12 @@ class DBConnectionView(Container):
                     "weights",
                     "default_language",
                     "language_override",
+                    "textIndexVersion",
+                    "2dsphereIndexVersion",
+                    "bits",
+                    "min",
+                    "max",
+                    "bucketSize",
                 ]
                 for p_name, p_val in idx_info.items():
                     if p_name not in excluded_fields:
@@ -572,7 +599,6 @@ class DBConnectionView(Container):
                             f"{p_name}={str(p_val)[:50]}{'...' if len(str(p_val)) > 50 else ''}"
                         )
                 other_props_str = ", ".join(other_props_list) if other_props_list else "N/A"
-
                 indexes_table.add_row(
                     idx_info.get("name", "N/A"),
                     key_str,
@@ -581,6 +607,7 @@ class DBConnectionView(Container):
                     str(idx_info.get("background", False)),
                     other_props_str,
                 )
+
         except WorkerCancelled:
             indexes_table.clear()
             indexes_table.add_row(
@@ -591,23 +618,58 @@ class DBConnectionView(Container):
                 "",
                 "",
             )
-        except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Error loading indexes for collection '%s' in DB '%s': %s",
-                    collection_name,
-                    db_name_app,
-                    e,
-                    exc_info=True,
+        except PyMongoOperationFailure as e_op:
+            logger.warning(
+                f"MongoDB operation failure loading indexes for '{collection_name}': {e_op}"
+            )
+            indexes_table.clear()
+            if _is_auth_error(e_op):
+                msg = f"Unauthorized to list indexes for '{collection_name}'."
+                indexes_table.add_row(Text(msg, style="italic red"), "", "", "", "", "")
+                self.app.notify(msg, title="Permission Denied", severity="error", timeout=5)
+            else:
+                err_details = e_op.details.get("errmsg", str(e_op)) if e_op.details else str(e_op)
+                msg = f"Error listing indexes: {str(err_details)[:70]}"
+                indexes_table.add_row(Text(msg, style="italic red"), "", "", "", "", "")
+                self.app.notify(
+                    f"Error listing indexes for '{collection_name}'. Check logs.",
+                    title="Operation Error",
+                    severity="error",
+                    timeout=5,
                 )
+        except (PyMongoConnectionFailure, ConnectionError) as e_conn:
+            logger.error(
+                f"Connection error loading indexes for '{collection_name}': {e_conn}", exc_info=True
+            )
+            indexes_table.clear()
+            msg = f"Connection error loading indexes: {str(e_conn)[:70]}"
+            indexes_table.add_row(Text(msg, style="italic red"), "", "", "", "", "")
+            self.app.notify(
+                "Connection error. Please reconnect.",
+                title="Connection Error",
+                severity="error",
+                timeout=5,
+            )
+        except Exception as e:
+            logger.error(
+                "Unexpected error loading indexes for collection '%s': %s",
+                collection_name,
+                e,
+                exc_info=True,
+            )
             indexes_table.clear()
             indexes_table.add_row(
-                Text(f"Error loading indexes: {str(e)[:70]}", style="italic red"),
+                Text(f"Unexpected error loading indexes: {str(e)[:70]}", style="italic red"),
                 "",
                 "",
                 "",
                 "",
                 "",
+            )
+            await self.app.push_screen(
+                ErrorDialog(
+                    "Index Load Error", f"Could not load indexes for '{collection_name}': {e!s}"
+                )
             )
 
 
@@ -618,10 +680,13 @@ def _format_bytes_tui(size_bytes: Any) -> str:
         return "N/A"
     if size_bytes == 0:
         return "0 B"
-
     size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB")
     try:
-        i = int(math.floor(math.log(size_bytes, 1024)))
+        if size_bytes <= 0:
+            i = 0
+        else:
+            i = int(math.floor(math.log(size_bytes, 1024)))
+
         if i >= len(size_name):
             i = len(size_name) - 1
         elif i < 0:
@@ -629,9 +694,6 @@ def _format_bytes_tui(size_bytes: Any) -> str:
     except ValueError:
         i = 0
 
-    if size_bytes == 0:
-        return "0 B"
-
     p = math.pow(1024, i)
-    s = round(size_bytes / p, 2)
+    s = round(size_bytes / p, 2) if p > 0 else 0
     return f"{s} {size_name[i]}"

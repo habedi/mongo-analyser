@@ -31,11 +31,22 @@ from textual.worker import Worker, WorkerCancelled
 logger = logging.getLogger(__name__)
 
 
+def _is_auth_error_from_op_failure(e: PyMongoOperationFailure) -> bool:
+    """Checks if a PyMongoOperationFailure is likely an authorization error."""
+    if e.code == 13:
+        return True
+    error_msg_lower = str(e).lower()
+    if "not authorized" in error_msg_lower or "unauthorized" in error_msg_lower:
+        return True
+    return False
+
+
 class SchemaAnalysisView(Container):
     analysis_status = reactive(Text("Select a collection and click Analyze Schema"))
     schema_copy_feedback = reactive(Text(""))
     current_hierarchical_schema: Dict = {}
     _current_schema_json_str: str = "{}"
+    _feedback_timer: Optional[Any] = None
 
     def __init__(
         self,
@@ -130,26 +141,53 @@ class SchemaAnalysisView(Container):
             select_widget = self.query_one("#schema_collection_select", Select)
             save_path_input = self.query_one("#schema_save_path_input", Input)
             collections = self.app.available_collections
-            if collections == self._last_collections:
-                return
-            self._last_collections = list(collections)
-            if collections:
-                options = [(c, c) for c in collections]
-                select_widget.set_options(options)
-                select_widget.disabled = False
-                select_widget.prompt = "Select Collection"
-                active = self.app.active_collection
-                if active in collections and select_widget.value != active:
-                    select_widget.value = active
-            else:
-                select_widget.set_options([])
-                select_widget.prompt = "Connect to DB to see collections"
-                select_widget.disabled = True
-                select_widget.value = Select.BLANK
-            current = str(select_widget.value) if select_widget.value != Select.BLANK else None
-            save_path_input.value = self._get_path_for_collection(
-                current or self.app.active_collection
+
+            current_selection_in_widget = (
+                str(select_widget.value) if select_widget.value != Select.BLANK else None
             )
+            app_active_collection = self.app.active_collection
+
+            needs_options_update = collections != self._last_collections
+            needs_value_update = (
+                app_active_collection != current_selection_in_widget
+                and app_active_collection in collections
+            )
+
+            if not needs_options_update and not needs_value_update:
+                if app_active_collection != current_selection_in_widget:
+                    save_path_input.value = self._get_path_for_collection(
+                        current_selection_in_widget
+                    )
+                return
+
+            if needs_options_update:
+                self._last_collections = list(collections)
+                if collections:
+                    options = [(c, c) for c in collections]
+                    select_widget.set_options(options)
+                    select_widget.disabled = False
+                    select_widget.prompt = "Select Collection"
+                else:
+                    select_widget.set_options([])
+                    select_widget.prompt = "Connect to DB to see collections"
+                    select_widget.disabled = True
+                    select_widget.value = Select.BLANK
+
+            if app_active_collection and app_active_collection in self._last_collections:
+                select_widget.value = app_active_collection
+            elif (
+                current_selection_in_widget
+                and current_selection_in_widget in self._last_collections
+            ):
+                pass
+            elif self._last_collections:
+                select_widget.value = Select.BLANK
+
+            final_selection_for_path = (
+                str(select_widget.value) if select_widget.value != Select.BLANK else None
+            )
+            save_path_input.value = self._get_path_for_collection(final_selection_for_path)
+
         except NoMatches:
             logger.warning(
                 "SchemaAnalysisView: select or input widget not found in update_collection_select."
@@ -170,22 +208,34 @@ class SchemaAnalysisView(Container):
     async def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id != "schema_collection_select":
             return
-        new = str(event.value) if event.value != Select.BLANK else None
-        if new == self.app.active_collection:
-            return
-        self.app.active_collection = new
+        new_selected_collection = str(event.value) if event.value != Select.BLANK else None
+
+        if new_selected_collection != self.app.active_collection:
+            self.app.active_collection = new_selected_collection
+
         save_path_input = self.query_one("#schema_save_path_input", Input)
-        save_path_input.value = self._get_path_for_collection(new)
+        save_path_input.value = self._get_path_for_collection(new_selected_collection)
+
         self._clear_analysis_results()
         self.analysis_status = Text("Collection changed. Click 'Analyze Schema'")
 
     def _clear_analysis_results(self):
-        table = self.query_one("#schema_results_table", DataTable)
-        md = self.query_one("#schema_json_view", Markdown)
-        table.clear()
+        try:
+            table = self.query_one("#schema_results_table", DataTable)
+            md = self.query_one("#schema_json_view", Markdown)
+            table.clear()
+        except NoMatches:
+            logger.warning("SchemaAnalysisView: Table or Markdown view not found during clear.")
+
         self.current_hierarchical_schema = {}
         self._current_schema_json_str = "{}"
-        md.update(f"```json\n{self._current_schema_json_str}\n```")
+        if self.is_mounted and hasattr(self, "query_one"):
+            try:
+                md_view = self.query_one("#schema_json_view", Markdown)
+                md_view.update(f"```json\n{self._current_schema_json_str}\n```")
+            except NoMatches:
+                pass
+
         self.app.current_schema_analysis_results = None
         self.analysis_status = Text("Results cleared. Select a collection and click Analyze Schema")
 
@@ -197,33 +247,23 @@ class SchemaAnalysisView(Container):
                 pass
 
     def watch_schema_copy_feedback(self, new_feedback: Text) -> None:
-        logger.debug(
-            f"watch_schema_copy_feedback TRIGGERED. New feedback plain text: '{new_feedback.plain}'"
-        )
         if self.is_mounted:
             try:
                 lbl = self.query_one("#schema_copy_feedback_label", Static)
-                logger.debug(
-                    f"Found #schema_copy_feedback_label. Updating with: '{new_feedback.plain}'"
-                )
                 lbl.update(new_feedback)
+                if self._feedback_timer is not None:
+                    self._feedback_timer.stop_no_wait()
+                    self._feedback_timer = None
                 if new_feedback.plain:
-                    logger.debug("Setting timer to clear feedback.")
-                    self.set_timer(
-                        3,
-                        lambda: setattr(self, "schema_copy_feedback", Text("")),
-                        name="clear_feedback_timer",
+                    self._feedback_timer = self.set_timer(
+                        3, lambda: setattr(self, "schema_copy_feedback", Text(""))
                     )
-                else:
-                    logger.debug("Feedback is empty, not setting clear timer.")
             except NoMatches:
                 logger.warning(
                     "#schema_copy_feedback_label NOT FOUND in watch_schema_copy_feedback!"
                 )
             except Exception as e:
                 logger.error(f"Error in watch_schema_copy_feedback: {e}", exc_info=True)
-        else:
-            logger.debug("watch_schema_copy_feedback: View not mounted, skipping update.")
 
     def _prepare_analysis_inputs(
         self,
@@ -243,7 +283,7 @@ class SchemaAnalysisView(Container):
         try:
             sel = self.query_one("#schema_collection_select", Select)
             coll = str(sel.value) if sel.value != Select.BLANK else None
-            size = self.query_one("#schema_sample_size_input", Input).value.strip()
+            size_str = self.query_one("#schema_sample_size_input", Input).value.strip()
         except NoMatches:
             return (
                 uri,
@@ -257,11 +297,19 @@ class SchemaAnalysisView(Container):
                 uri,
                 db_name,
                 None,
-                size,
+                size_str,
                 Text.from_markup("[#BF616A]Please select a collection.[/]"),
             )
+        if not size_str:
+            return (
+                uri,
+                db_name,
+                coll,
+                "",
+                Text.from_markup("[#BF616A]Sample size cannot be empty.[/]"),
+            )
         try:
-            int(size)
+            int(size_str)
         except ValueError:
             return (
                 uri,
@@ -270,7 +318,7 @@ class SchemaAnalysisView(Container):
                 "",
                 Text.from_markup("[#BF616A]Sample size must be an integer.[/]"),
             )
-        return uri, db_name, coll, size, None
+        return uri, db_name, coll, size_str, None
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         btn = event.button.id
@@ -281,13 +329,13 @@ class SchemaAnalysisView(Container):
             self.analysis_status = Text.from_markup("[#EBCB8B]Preparing analysis...[/]")
             self.schema_copy_feedback = Text("")
 
-            uri, db, coll, size_str, err = self._prepare_analysis_inputs()
-            if err or not uri or not db or not coll:
-                self.analysis_status = err or Text.from_markup(
+            uri, db, coll, size_str, err_text = self._prepare_analysis_inputs()
+            if err_text or not uri or not db or not coll:
+                self.analysis_status = err_text or Text.from_markup(
                     "[#BF616A]Missing DB connection or collection.[/]"
                 )
-                if err:
-                    await self.app.push_screen(ErrorDialog("Input Error", err.plain))
+                if err_text:
+                    await self.app.push_screen(ErrorDialog("Input Error", err_text.plain))
                 if self.is_mounted:
                     loading_indicator.display = False
                 return
@@ -299,21 +347,31 @@ class SchemaAnalysisView(Container):
 
             try:
                 callable_with_args = functools.partial(self._run_analysis_task, uri, db, coll, size)
-                worker: Worker = self.app.run_worker(
-                    callable_with_args, thread=True, group="schema_analysis"
-                )
-                schema_data, field_stats_data, hierarchical_schema, error_msg = await worker.wait()
+
+                worker: Worker[
+                    Tuple[
+                        Optional[Dict], Optional[Dict], Optional[Dict], Optional[Tuple[str, bool]]
+                    ]
+                ] = self.app.run_worker(callable_with_args, thread=True, group="schema_analysis")
+                result = await worker.wait()
+                schema_data, field_stats_data, hierarchical_schema, error_tuple = result
 
                 if worker.is_cancelled:
                     self.analysis_status = Text.from_markup(
                         "[#D08770]Analysis cancelled by user.[/]"
                     )
-                elif error_msg:
+                elif error_tuple and error_tuple[0]:
+                    error_msg_str, is_auth_error = error_tuple
                     self.analysis_status = Text.from_markup(
-                        f"[#BF616A]Analysis Error: {error_msg}[/]"
+                        f"[#BF616A]Analysis Error: {error_msg_str}[/]"
                     )
-                    await self.app.push_screen(ErrorDialog("Analysis Error", error_msg))
-                elif schema_data and field_stats_data and hierarchical_schema is not None:
+                    dialog_title = "Authorization Error" if is_auth_error else "Analysis Error"
+                    await self.app.push_screen(ErrorDialog(dialog_title, error_msg_str))
+                elif (
+                    schema_data is not None
+                    and field_stats_data is not None
+                    and hierarchical_schema is not None
+                ):
                     self.current_hierarchical_schema = hierarchical_schema
                     self.app.current_schema_analysis_results = {
                         "flat_schema": schema_data,
@@ -323,20 +381,7 @@ class SchemaAnalysisView(Container):
                     }
                     table = self.query_one("#schema_results_table", DataTable)
                     md_view = self.query_one("#schema_json_view", Markdown)
-                    if not table.columns:
-                        table.add_columns(
-                            "Field",
-                            "Type(s)",
-                            "Cardinality",
-                            "Missing (%)",
-                            "Num Min",
-                            "Num Max",
-                            "Date Min",
-                            "Date Max",
-                            "Top Values (Field)",
-                            "Array Elem Types",
-                            "Array Elem Top Values",
-                        )
+
                     rows: List[Tuple[Any, ...]] = []
                     for field, details in schema_data.items():
                         stats = field_stats_data.get(field, {})
@@ -366,7 +411,11 @@ class SchemaAnalysisView(Container):
                     if rows:
                         table.add_rows(rows)
                     else:
-                        table.add_row("No schema fields found or analyzed.", *[""] * 10)
+                        table.add_row(
+                            "No schema fields found or analyzed.",
+                            *[""] * (len(table.columns) - 1 if table.columns else 10),
+                        )
+
                     try:
                         self._current_schema_json_str = json.dumps(
                             hierarchical_schema, indent=2, default=str
@@ -381,8 +430,9 @@ class SchemaAnalysisView(Container):
                         )
                 else:
                     self.analysis_status = Text.from_markup(
-                        "[#D08770]Analysis completed with no data or partial results.[/]"
+                        "[#D08770]Analysis completed with no data or an unknown issue.[/]"
                     )
+
             except WorkerCancelled:
                 self.analysis_status = Text.from_markup("[#D08770]Analysis was cancelled.[/]")
             except Exception as e:
@@ -443,13 +493,13 @@ class SchemaAnalysisView(Container):
             try:
                 table = self.query_one("#schema_results_table", DataTable)
                 coord = table.cursor_coordinate
-                if table.row_count == 0 or coord is None:
+                if table.row_count == 0 or not table.show_cursor or coord is None:
                     self.schema_copy_feedback = Text.from_markup(
                         "[#D08770]No data or cell selected.[/]"
                     )
                     self.app.notify("No cell selected.", title="Copy Info", severity="warning")
                     return
-                r, c = coord
+                r, c = coord.row, coord.column
                 cell_value = table.get_cell_at(coord)
                 val_to_copy = cell_value.plain if isinstance(cell_value, Text) else str(cell_value)
                 self.app.copy_to_clipboard(val_to_copy)
@@ -483,10 +533,12 @@ class SchemaAnalysisView(Container):
                 ]
                 writer.writerow(headers)
                 for i in range(table.row_count):
-                    row_data = table.get_row_at(i)
-                    writer.writerow(
-                        [cell.plain if isinstance(cell, Text) else str(cell) for cell in row_data]
-                    )
+                    row_data_renderables = table.get_row_at(i)
+                    row_data_plain = [
+                        cell.plain if isinstance(cell, Text) else str(cell)
+                        for cell in row_data_renderables
+                    ]
+                    writer.writerow(row_data_plain)
                 self.app.copy_to_clipboard(output.getvalue())
                 self.schema_copy_feedback = Text.from_markup(
                     "[#A3BE8C]Analysis table copied as CSV![/]"
@@ -503,21 +555,39 @@ class SchemaAnalysisView(Container):
 
     def _run_analysis_task(
         self, uri: str, db_name: str, collection_name: str, sample_size: int
-    ) -> Tuple[Optional[Dict], Optional[Dict], Optional[Dict], Optional[str]]:
+    ) -> Tuple[Optional[Dict], Optional[Dict], Optional[Dict], Optional[Tuple[str, bool]]]:
         try:
             coll = SchemaAnalyser.get_collection(uri, db_name, collection_name)
             schema_data, field_stats_data = SchemaAnalyser.infer_schema_and_field_stats(
                 coll, sample_size
             )
-            if not schema_data and not field_stats_data:
-                return {}, {}, {}, None
+            if schema_data is None and field_stats_data is None:
+                return None, None, None, ("Analysis returned no data.", False)
+
             hierarchical_schema = SchemaAnalyser.schema_to_hierarchical(
                 schema_data if schema_data else {}
             )
             return schema_data, field_stats_data, hierarchical_schema, None
-        except (PyMongoConnectionFailure, PyMongoOperationFailure, ConnectionError) as e:
-            logger.error(f"Schema analysis: DB error: {e}", exc_info=False)
-            return None, None, None, f"Database Error: {e!s}"
+        except PyMongoOperationFailure as e_op:
+            logger.warning(
+                f"Schema analysis: MongoDB operation failure for '{collection_name}': {e_op}"
+            )
+            is_auth = _is_auth_error_from_op_failure(e_op)
+            err_details = e_op.details.get("errmsg", str(e_op)) if e_op.details else str(e_op)
+            err_msg = (
+                f"Not authorized to read/analyze collection '{collection_name}'."
+                if is_auth
+                else f"Operation failed on '{collection_name}': {err_details}"
+            )
+            return None, None, None, (err_msg, is_auth)
+        except (PyMongoConnectionFailure, ConnectionError) as e_conn:
+            logger.error(
+                f"Schema analysis: DB connection error for '{collection_name}': {e_conn}",
+                exc_info=True,
+            )
+            return None, None, None, (f"Database Connection Error: {e_conn!s}", False)
         except Exception as e:
-            logger.exception(f"Unexpected error in schema analysis task: {e}")
-            return None, None, None, f"Unexpected Analysis Error: {e!s}"
+            logger.exception(
+                f"Unexpected error in schema analysis task for '{collection_name}': {e}"
+            )
+            return None, None, None, (f"Unexpected Analysis Error: {e!s}", False)
