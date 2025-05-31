@@ -1,5 +1,6 @@
 import logging
 from typing import Union
+
 from urllib.parse import quote_plus, urlparse, urlunparse
 
 logger = logging.getLogger(__name__)

@@ -2,7 +2,7 @@ import logging
 import uuid
 from collections import Counter
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from bson import Binary, Decimal128, Int64, ObjectId
 from pymongo.errors import (
@@ -126,22 +126,21 @@ class SchemaAnalyser:
             elif element_types_for_schema:
                 schema[full_key] = {"type": "array<mixed>"}
             else:
-                schema[full_key] = {
-                    "type": "array<unknown>"}  # Should not happen if value is not empty
+                schema[full_key] = {"type": "array<unknown>"}
 
             for elem in value:
                 SchemaAnalyser.handle_simple_value(
                     elem,
-                    {},  # schema is not built for individual array elements here, only stats
+                    {},
                     current_field_stats["array_element_stats"],
-                    full_key,  # full_key is for the array itself, not its elements
+                    full_key,
                     is_array_element=True,
                 )
 
         try:
             hashable_value = SchemaAnalyser._make_hashable(value)
             current_field_stats["values"].add(hashable_value)
-        except TypeError:  # pragma: no cover
+        except TypeError:
             current_field_stats["values"].add(f"unhashable_array_len_{len(value)}")
 
     @staticmethod
@@ -187,7 +186,7 @@ class SchemaAnalyser:
             schema[full_key] = {"type": value_type_name}
             try:
                 stats_dict_to_update["values"].add(SchemaAnalyser._make_hashable(value))
-            except Exception:  # pragma: no cover
+            except Exception:
                 stats_dict_to_update["values"].add(f"unhashable_value_type_{type(value).__name__}")
 
         stats_dict_to_update["type_counts"].update([value_type_name])
@@ -201,7 +200,7 @@ class SchemaAnalyser:
                 stats_dict_to_update.get("numeric_max", float("-inf")), num_val
             )
         elif isinstance(value, str):
-            if len(value) < 256:  # Only track frequencies for reasonably short strings
+            if len(value) < 256:
                 stats_dict_to_update["value_frequencies"].update([value])
         elif isinstance(value, datetime):
             cur_min = stats_dict_to_update.get("date_min")
@@ -218,7 +217,7 @@ class SchemaAnalyser:
         if not db_manager.db_connection_active(
             uri=uri, db_name=db_name, server_timeout_ms=server_timeout_ms
         ):
-            raise PyMongoConnectionFailure(  # pragma: no cover
+            raise PyMongoConnectionFailure(
                 f"Failed to establish or verify active connection to MongoDB for {db_name}"
             )
         database = db_manager.get_mongo_db()
@@ -229,14 +228,14 @@ class SchemaAnalyser:
         if not db_manager.db_connection_active(
             uri=uri, db_name=db_name, server_timeout_ms=server_timeout_ms
         ):
-            raise PyMongoConnectionFailure(  # pragma: no cover
+            raise PyMongoConnectionFailure(
                 f"Failed to establish or verify active connection to MongoDB for listing collections in {db_name}"
             )
 
         database = db_manager.get_mongo_db()
         try:
             return sorted(database.list_collection_names())
-        except PyMongoOperationFailure as e:  # pragma: no cover
+        except PyMongoOperationFailure as e:
             logger.error(f"MongoDB operation failure listing collections for DB '{db_name}': {e}")
             raise
 
@@ -251,7 +250,7 @@ class SchemaAnalyser:
         try:
             docs = (
                 collection.find().batch_size(batch_size)
-                if sample_size < 0  # Negative means all documents
+                if sample_size < 0
                 else collection.aggregate([{"$sample": {"size": sample_size}}]).batch_size(
                     batch_size
                 )
@@ -261,7 +260,7 @@ class SchemaAnalyser:
                 schema, stats = SchemaAnalyser.extract_schema_and_stats(doc, schema, stats)
                 if sample_size > 0 and total_docs >= sample_size:
                     break
-        except PyMongoOperationFailure as e:  # pragma: no cover
+        except PyMongoOperationFailure as e:
             logger.error(
                 f"Error during schema inference on {collection.database.name}.{collection.name}: {e}"
             )
@@ -300,7 +299,7 @@ class SchemaAnalyser:
             if val_freqs:
                 processed["top_values"] = dict(val_freqs.most_common(5))
 
-            if arr_type_counts:  # If array elements were processed
+            if arr_type_counts:
                 arr_processed: Dict[str, Any] = {
                     "type_distribution": dict(arr_type_counts.most_common(5))
                 }

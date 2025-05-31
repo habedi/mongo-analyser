@@ -58,8 +58,8 @@ class LLMConfigPanel(VerticalScroll):
             id="llm_config_temperature",
             value=str(self.DEFAULT_TEMPERATURE),
             tooltip="Controls randomness (0.0-1.0). Higher values (e.g., 0.9) for more creative and"
-                    " diverse responses, lower (e.g., 0.2) for more deterministic/focused ones."
-                    f" Default: {self.DEFAULT_TEMPERATURE}",
+            " diverse responses, lower (e.g., 0.2) for more deterministic/focused ones."
+            f" Default: {self.DEFAULT_TEMPERATURE}",
         )
 
         yield Label(f"Max History (0=all, -1=none, default: {self.DEFAULT_MAX_HISTORY}):")
@@ -68,8 +68,8 @@ class LLMConfigPanel(VerticalScroll):
             id="llm_config_max_history",
             value=str(self.DEFAULT_MAX_HISTORY),
             tooltip="Number of recent conversation turns (user+AI message pairs) to include as context."
-                    " '0' includes all available history. '-1' includes no history (current message only)."
-                    f" Default: {self.DEFAULT_MAX_HISTORY}",
+            " '0' includes all available history. '-1' includes no history (current message only)."
+            f" Default: {self.DEFAULT_MAX_HISTORY}",
         )
 
         yield Button("New Chat Session", id="llm_config_new_session_button", variant="primary")

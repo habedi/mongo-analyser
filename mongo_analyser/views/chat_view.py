@@ -1,23 +1,7 @@
 import functools
 import json
 import logging
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Type
-
-from rich.text import Text
-from textual import on
-from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.css.query import NoMatches
-from textual.widget import Widget
-from textual.widgets import (
-    Button,
-    Input,
-    LoadingIndicator,
-    Markdown,
-    Select,
-    Static,
-)
-from textual.worker import Worker, WorkerCancelled, WorkerFailed, WorkerState
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import mongo_analyser.core.db as core_db_manager
 from mongo_analyser.core.analyser import SchemaAnalyser
@@ -29,7 +13,21 @@ from mongo_analyser.llm_chat import (
     OllamaChat,
     OpenAIChat,
 )
-from mongo_analyser.widgets import ChatMessageList, LLMConfigPanel, ChatMessageWidget
+from mongo_analyser.widgets import ChatMessageList, ChatMessageWidget, LLMConfigPanel
+from rich.text import Text
+from textual import on
+from textual.app import ComposeResult
+from textual.containers import Container, Horizontal, Vertical
+from textual.css.query import NoMatches
+from textual.widget import Widget
+from textual.widgets import (
+    Button,
+    Input,
+    LoadingIndicator,
+    Markdown,
+    Static,
+)
+from textual.worker import Worker, WorkerCancelled, WorkerState
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +56,7 @@ class ChatView(Container):
         SCHEMA_SECTION_KEY: "[SCHEMA FOR COLLECTION: '{collection_name}']\n",
         METADATA_SECTION_KEY: "[FIELD STATISTICS FOR COLLECTION: '{collection_name}']\n",
         SAMPLEDOCS_SECTION_KEY: "[SAMPLE DOCUMENTS FOR COLLECTION: '{collection_name}'"
-                                " ({num_docs} docs)]\n",
+        " ({num_docs} docs)]\n",
     }
     DEFAULT_SAMPLE_DOCS_COUNT = 3
 
@@ -234,17 +232,20 @@ class ChatView(Container):
         llm_class = self.PROVIDER_CLASSES.get(provider_value)
         if not llm_class:
             panel.update_models_list([], f"Unknown provider: {provider_value}")
-            if panel.model is not None: panel.model = None
+            if panel.model is not None:
+                panel.model = None
             self._log_chat_message(
                 self.ROLE_SYSTEM, f"Cannot load models for unknown provider: {provider_value}"
             )
-            if loader.is_mounted: loader.display = False
+            if loader.is_mounted:
+                loader.display = False
             return
 
         panel.set_model_select_loading(True, f"Loading models for {provider_value}...")
         self._update_chat_status_line(status=f"Loading {provider_value} models...")
         self._log_chat_message(self.ROLE_SYSTEM, f"Fetching models for {provider_value}...")
-        if loader.is_mounted: loader.display = True
+        if loader.is_mounted:
+            loader.display = True
 
         listed: List[str] = []
         error: Optional[str] = None
@@ -259,14 +260,16 @@ class ChatView(Container):
                 group="model_listing",
             )
             listed = await worker.wait()
-            if worker.is_cancelled: error = "Model loading cancelled by worker."
+            if worker.is_cancelled:
+                error = "Model loading cancelled by worker."
         except WorkerCancelled:
             error = "Model loading cancelled."
         except Exception as e:
             logger.error(f"ChatView: Error listing models for {provider_value}: {e}", exc_info=True)
             error = f"Failed to list models: {e.__class__.__name__}: {str(e)[:60]}"
 
-        if loader.is_mounted: loader.display = False
+        if loader.is_mounted:
+            loader.display = False
         panel.set_model_select_loading(False)
 
         current_status_after_listing = "Models loaded"
@@ -274,7 +277,8 @@ class ChatView(Container):
             panel.update_models_list([], error)
             self._log_chat_message(self.ROLE_SYSTEM, error)
             current_status_after_listing = "Model list error"
-            if panel.model is not None: panel.model = None
+            if panel.model is not None:
+                panel.model = None
         else:
             options = [(m, m) for m in listed]
             prompt_if_empty = "No models found for this provider." if not listed else "Select Model"
@@ -285,19 +289,23 @@ class ChatView(Container):
             if listed:
                 default_configured_model_key = f"llm_default_model_{provider_value}"
                 default_configured_model = self.app.config_manager.get_setting(
-                    default_configured_model_key)
+                    default_configured_model_key
+                )
 
                 if default_configured_model and default_configured_model in listed:
                     selected_model_for_panel = default_configured_model
                     logger.info(
-                        f"Using configured default model for {provider_value}: {selected_model_for_panel}")
+                        f"Using configured default model for {provider_value}: {selected_model_for_panel}"
+                    )
                 else:
                     if default_configured_model:
                         logger.warning(
-                            f"Configured default model '{default_configured_model}' for {provider_value} not found in listed models. Using first available.")
+                            f"Configured default model '{default_configured_model}' for {provider_value} not found in listed models. Using first available."
+                        )
                     selected_model_for_panel = listed[0]
                     logger.info(
-                        f"Using first available model for {provider_value}: {selected_model_for_panel}")
+                        f"Using first available model for {provider_value}: {selected_model_for_panel}"
+                    )
 
             if panel.model != selected_model_for_panel:
                 panel.model = selected_model_for_panel
@@ -308,12 +316,12 @@ class ChatView(Container):
 
         self._update_chat_status_line(status=current_status_after_listing)
         if panel.model is None and (error or not listed):
-            await self.handle_model_change_from_llm_config_panel(
-                LLMConfigPanel.ModelChanged(None)
-            )
-        elif panel.model is not None:  # If a model is set (or was already set)
-            # Ensure client is (re)created if necessary
-            if self.llm_client_instance is None or self.llm_client_instance.model_name != panel.model:
+            await self.handle_model_change_from_llm_config_panel(LLMConfigPanel.ModelChanged(None))
+        elif panel.model is not None:
+            if (
+                self.llm_client_instance is None
+                or self.llm_client_instance.model_name != panel.model
+            ):
                 await self.handle_model_change_from_llm_config_panel(
                     LLMConfigPanel.ModelChanged(panel.model)
                 )
@@ -378,8 +386,9 @@ class ChatView(Container):
             return False
 
         client_kwargs = {"model_name": model_name}
-        temperature = cfg.get("temperature",
-                              self.app.config_manager.get_setting("llm_default_temperature"))
+        temperature = cfg.get(
+            "temperature", self.app.config_manager.get_setting("llm_default_temperature")
+        )
 
         if provider == "ollama":
             client_kwargs.update(
@@ -387,7 +396,7 @@ class ChatView(Container):
                     k: v
                     for k, v in cfg.items()
                     if k
-                       not in ["provider_hint", "model_name", "temperature", "max_history_messages"]
+                    not in ["provider_hint", "model_name", "temperature", "max_history_messages"]
                 }
             )
             client_kwargs.setdefault("options", {})
@@ -405,14 +414,13 @@ class ChatView(Container):
             if temperature is not None:
                 client_kwargs["temperature"] = temperature
 
-
         elif provider == "google":
             client_kwargs.update(
                 {
                     k: v
                     for k, v in cfg.items()
                     if k
-                       not in ["provider_hint", "model_name", "temperature", "max_history_messages"]
+                    not in ["provider_hint", "model_name", "temperature", "max_history_messages"]
                 }
             )
             if temperature is not None:
@@ -475,14 +483,12 @@ class ChatView(Container):
             markdown_widget.update(self._full_response_content + cursor_char)
             try:
                 self.query_one("#chat_log_widget", ChatMessageList).scroll_end(animate=False)
-            except NoMatches:  # Should not happen if _current_ai_message_widget is valid
+            except NoMatches:
                 pass
 
     def _handle_stream_end(self, cancelled: bool = False) -> None:
         final_text = self._full_response_content.strip()
 
-        # Check worker state one last time, as cancellation might happen
-        # between the last chunk and this call.
         if self.current_llm_worker and self.current_llm_worker.state == WorkerState.CANCELLED:
             cancelled = True
 
@@ -492,15 +498,12 @@ class ChatView(Container):
         if self._current_ai_message_widget and self._current_ai_message_widget.is_mounted:
             self._current_ai_message_widget.query_one(Markdown).update(final_text)
 
-        # Add to history only if not already added or if content needs update
-        # For simplicity, we'll add it here, assuming it's the final version.
-        # A more robust approach might involve updating an existing placeholder in chat_history.
         self.chat_history.append({"role": self.ROLE_AI, "content": final_text})
         self._cleanup_after_send()
 
     def _handle_stream_error(self, error: Exception) -> None:
         logger.error(f"Error in streaming worker task: {error}", exc_info=True)
-        err_msg = f"LLM Error: {str(error)}"
+        err_msg = f"LLM Error: {error!s}"
         if self._current_ai_message_widget and self._current_ai_message_widget.is_mounted:
             self._current_ai_message_widget.query_one(Markdown).update(err_msg)
         else:
@@ -527,17 +530,17 @@ class ChatView(Container):
         self._current_ai_message_widget = None
         self.current_llm_worker = None
 
-    def _streaming_worker_task(self, client: LLMChat, message: str,
-                               history: List[Dict[str, str]]) -> None:
+    def _streaming_worker_task(
+        self, client: LLMChat, message: str, history: List[Dict[str, str]]
+    ) -> None:
         """The actual function run by the worker to stream messages."""
         try:
-            # This is a synchronous generator
             for chunk in client.stream_message(message=message, history=history):
                 if self.current_llm_worker and self.current_llm_worker.is_cancelled:
                     self.app.call_from_thread(self._handle_stream_end, cancelled=True)
                     return
                 self.app.call_from_thread(self._handle_stream_chunk, chunk)
-            # Stream finished normally
+
             self.app.call_from_thread(self._handle_stream_end, cancelled=False)
         except Exception as e:
             logger.error(f"Exception in _streaming_worker_task: {e}", exc_info=True)
@@ -584,16 +587,18 @@ class ChatView(Container):
         client = self.llm_client_instance
 
         task = functools.partial(
-            self._streaming_worker_task, client=client, message=message_for_llm,
-            history=history_for_llm
+            self._streaming_worker_task,
+            client=client,
+            message=message_for_llm,
+            history=history_for_llm,
         )
 
         if self.current_llm_worker and self.current_llm_worker.state == WorkerState.RUNNING:
             self.current_llm_worker.cancel()
 
-        self.current_llm_worker = self.app.run_worker(task, thread=True, group="llm_call_stream",
-                                                      exclusive=True)
-        # No await here; UI updates are handled via call_from_thread from the worker
+        self.current_llm_worker = self.app.run_worker(
+            task, thread=True, group="llm_call_stream", exclusive=True
+        )
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
@@ -603,7 +608,7 @@ class ChatView(Container):
             if self.current_llm_worker and self.current_llm_worker.state == WorkerState.RUNNING:
                 logger.info("Stop button pressed. Cancelling LLM worker.")
                 self.current_llm_worker.cancel()
-                # _handle_stream_end(cancelled=True) will be called from the worker task if cancellation is successful
+
                 self._log_chat_message(self.ROLE_SYSTEM, "Attempting to stop LLM response...")
                 try:
                     self.query_one("#stop_chat_message_button", Button).disabled = True
@@ -658,7 +663,7 @@ class ChatView(Container):
                     f" for '{coll}' added/updated for next message.",
                     title="Context Added",
                 )
-                button.label = Text(  # type: ignore
+                button.label = Text(
                     f"{context_type_key.replace('_', ' ').capitalize()} Added ✓",
                     style="italic green",
                 )
@@ -668,26 +673,26 @@ class ChatView(Container):
                     title="Context Error",
                     severity="error",
                 )
-                button.label = original_button_label  # type: ignore
+                button.label = original_button_label
 
         except Exception as e:
             logger.error(
                 f"Error handling prepend context for {context_type_key}: {e}", exc_info=True
             )
             self.app.notify(f"Error: {e}", title="Context Preparation Error", severity="error")
-            button.label = original_button_label  # type: ignore
+            button.label = original_button_label
         finally:
 
             def revert_button():
                 if button.is_mounted and button.label != original_button_label:
-                    if "Added ✓" in button.label.plain:  # type: ignore
+                    if "Added ✓" in button.label.plain:
                         self.set_timer(1.5, lambda: setattr(button, "label", original_button_label))
                     else:
-                        button.label = original_button_label  # type: ignore
+                        button.label = original_button_label
                 button.disabled = False
 
-            if "Loading..." in button.label.plain:  # type: ignore
-                button.label = original_button_label  # type: ignore
+            if "Loading..." in button.label.plain:
+                button.label = original_button_label
                 button.disabled = False
             else:
                 self.set_timer(2.5, revert_button)
@@ -713,15 +718,14 @@ class ChatView(Container):
 
         try:
             if not core_db_manager.db_connection_active(
-                uri=self.app.current_mongo_uri,  # type: ignore
-                db_name=self.app.current_db_name,  # type: ignore
+                uri=self.app.current_mongo_uri,
+                db_name=self.app.current_db_name,
                 server_timeout_ms=3000,
             ):
                 raise ConnectionError("DB connection lost or could not be re-established.")
 
             pymongo_collection = SchemaAnalyser.get_collection(
                 self.app.current_mongo_uri, self.app.current_db_name, collection_name
-                # type: ignore
             )
 
             analysis_task = functools.partial(
@@ -800,16 +804,16 @@ class ChatView(Container):
         self.app.notify(f"Fetching {num_docs} sample docs for '{coll}'...", title="Data Fetch")
         try:
             if not core_db_manager.db_connection_active(
-                uri=self.app.current_mongo_uri,  # type: ignore
-                db_name=self.app.current_db_name,  # type: ignore
+                uri=self.app.current_mongo_uri,
+                db_name=self.app.current_db_name,
                 server_timeout_ms=3000,
             ):
                 raise ConnectionError("DB connection lost for sample doc fetching.")
 
             fetch_task = functools.partial(
                 get_newest_documents,
-                self.app.current_mongo_uri,  # type: ignore
-                self.app.current_db_name,  # type: ignore
+                self.app.current_mongo_uri,
+                self.app.current_db_name,
                 coll,
                 num_docs,
             )
@@ -922,7 +926,7 @@ class ChatView(Container):
         try:
             input_widget = self.query_one("#chat_message_input", Input)
             if self.app.focused is input_widget:
-                input_widget.action_end()  # type: ignore
+                input_widget.action_end()
         except NoMatches:
             logger.warning("Chat input widget not found in _apply_contexts_to_input_field.")
 
@@ -971,4 +975,3 @@ class ChatView(Container):
                     await self._send_user_message()
             except NoMatches:
                 logger.error("Send button not found on input submission.")
-
