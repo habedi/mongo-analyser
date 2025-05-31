@@ -47,7 +47,7 @@ class ConfigView(Container):
             yield Select(
                 [(name.replace("-", " ").title(), name) for name in VALID_THEMES],
                 id="config_theme_select",
-                value=DEFAULT_SETTINGS["theme"]
+                value=DEFAULT_THEME_NAME
             )
 
             yield Label("Default Log Level:", classes="config_label")
@@ -81,11 +81,10 @@ class ConfigView(Container):
             yield Label("LLM Default Provider:", classes="config_label")
             yield Select(
                 [("Ollama", "ollama"), ("OpenAI", "openai"), ("Google", "google")],
-                id="config_llm_default_provider_select",  # Changed ID for clarity
+                id="config_llm_default_provider_select",
                 value=DEFAULT_SETTINGS["llm_default_provider"],
                 allow_blank=False
             )
-            # Provider-specific model inputs
             yield Label("LLM Default Model - Ollama:", classes="config_label")
             yield Input(
                 id="config_llm_model_ollama_input",
@@ -128,11 +127,21 @@ class ConfigView(Container):
         if not self._config_manager:
             return
         try:
-            theme_to_set = self._config_manager.get_setting("theme")
             theme_select = self.query_one("#config_theme_select", Select)
-            if theme_to_set in [opt_val for _, opt_val in theme_select.options]:
+            theme_to_set = self._config_manager.get_setting("theme")
+
+            # Access options via _options
+            current_options = theme_select._options
+            if not current_options:
+                theme_select.set_options(
+                    [(name.replace("-", " ").title(), name) for name in VALID_THEMES])
+                current_options = theme_select._options
+
+            if theme_to_set in [opt_val for _, opt_val in current_options]:
                 theme_select.value = theme_to_set
             else:
+                logger.warning(
+                    f"Theme '{theme_to_set}' from config not in Select options. Defaulting to {DEFAULT_THEME_NAME}")
                 theme_select.value = DEFAULT_THEME_NAME
 
             self.query_one("#config_log_level_select",

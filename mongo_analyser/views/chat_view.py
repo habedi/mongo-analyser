@@ -13,8 +13,8 @@ from textual.widgets import (
     Button,
     Input,
     LoadingIndicator,
-    Markdown,  # Added Markdown import
-    Select,  # Added Select import
+    Markdown,
+    Select,
     Static,
 )
 from textual.worker import Worker, WorkerCancelled, WorkerFailed, WorkerState
@@ -29,8 +29,7 @@ from mongo_analyser.llm_chat import (
     OllamaChat,
     OpenAIChat,
 )
-from mongo_analyser.widgets import ChatMessageList, LLMConfigPanel, \
-    ChatMessageWidget  # Added ChatMessageWidget
+from mongo_analyser.widgets import ChatMessageList, LLMConfigPanel, ChatMessageWidget
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +61,9 @@ class ChatView(Container):
                                 " ({num_docs} docs)]\n",
     }
     DEFAULT_SAMPLE_DOCS_COUNT = 3
+
+    _current_ai_message_widget: Optional[ChatMessageWidget] = None
+    _full_response_content: str = ""
 
     def __init__(
         self,
@@ -201,7 +203,7 @@ class ChatView(Container):
         if event.provider:
             try:
                 panel = self.query_one(LLMConfigPanel)
-                if panel.provider != event.provider:  # Should not happen if event is from panel
+                if panel.provider != event.provider:
                     panel.provider = event.provider
             except NoMatches:
                 pass
@@ -210,7 +212,7 @@ class ChatView(Container):
             try:
                 panel = self.query_one(LLMConfigPanel)
                 panel.update_models_list([], "Select Provider First")
-                panel.model = None  # This will trigger ModelChanged
+                panel.model = None
             except NoMatches:
                 logger.error(
                     "ChatView: LLMConfigPanel not found when handling null provider change."
@@ -248,8 +250,7 @@ class ChatView(Container):
         error: Optional[str] = None
 
         client_cfg_from_panel = panel.get_llm_config()
-        client_cfg_from_panel[
-            "provider_hint"] = provider_value  # Ensure provider is in config for list_models
+        client_cfg_from_panel["provider_hint"] = provider_value
 
         try:
             worker: Worker[List[str]] = self.app.run_worker(
@@ -280,45 +281,42 @@ class ChatView(Container):
             panel.update_models_list(options, prompt_if_empty)
             current_status_after_listing = "Models loaded" if listed else "No models found"
 
+            selected_model_for_panel: Optional[str] = None
             if listed:
                 default_configured_model_key = f"llm_default_model_{provider_value}"
                 default_configured_model = self.app.config_manager.get_setting(
                     default_configured_model_key)
 
-                selected_model_for_panel: Optional[str] = None
-
                 if default_configured_model and default_configured_model in listed:
                     selected_model_for_panel = default_configured_model
                     logger.info(
                         f"Using configured default model for {provider_value}: {selected_model_for_panel}")
-                else:  # Fallback if no configured default or configured default not found
-                    general_preferred_model: Optional[str] = None
-                    # (Optional: Add general preferences here if desired, like before)
-                    # Example:
-                    # if provider_value == "ollama":
-                    #     preferred_bases = ["gemma2:2b", "llama3:8b"] # etc.
-                    #     for p_base in preferred_bases: # ... find in listed ...
+                else:
+                    if default_configured_model:
+                        logger.warning(
+                            f"Configured default model '{default_configured_model}' for {provider_value} not found in listed models. Using first available.")
+                    selected_model_for_panel = listed[0]
+                    logger.info(
+                        f"Using first available model for {provider_value}: {selected_model_for_panel}")
 
-                    if general_preferred_model and general_preferred_model in listed:
-                        selected_model_for_panel = general_preferred_model
-                        logger.info(
-                            f"Configured default for {provider_value} not found/set. Using general preferred: {selected_model_for_panel}")
-                    elif listed:  # Fallback to first available if no general preference found
-                        selected_model_for_panel = listed[0]
-                        logger.info(
-                            f"No specific or general preferred default for {provider_value}. Using first available: {selected_model_for_panel}")
-
-                if panel.model != selected_model_for_panel:
-                    panel.model = selected_model_for_panel
-            else:
-                if panel.model is not None:
-                    panel.model = None
+            if panel.model != selected_model_for_panel:
+                panel.model = selected_model_for_panel
+            elif selected_model_for_panel is None and panel.model is not None:
+                panel.model = None
+            elif selected_model_for_panel is not None and panel.model is None:
+                panel.model = selected_model_for_panel
 
         self._update_chat_status_line(status=current_status_after_listing)
-        # Ensure handle_model_change is called to reflect the new state of panel.model
-        await self.handle_model_change_from_llm_config_panel(
-            LLMConfigPanel.ModelChanged(panel.model)
-        )
+        if panel.model is None and (error or not listed):
+            await self.handle_model_change_from_llm_config_panel(
+                LLMConfigPanel.ModelChanged(None)
+            )
+        elif panel.model is not None:  # If a model is set (or was already set)
+            # Ensure client is (re)created if necessary
+            if self.llm_client_instance is None or self.llm_client_instance.model_name != panel.model:
+                await self.handle_model_change_from_llm_config_panel(
+                    LLMConfigPanel.ModelChanged(panel.model)
+                )
 
     @on(LLMConfigPanel.ModelChanged)
     async def handle_model_change_from_llm_config_panel(
@@ -329,14 +327,14 @@ class ChatView(Container):
             f"ChatView: handle_model_change_from_llm_config_panel received ModelChanged"
             f" event with model: {model_value}"
         )
-        self.active_contexts.clear()  # Clear context when model changes
+        self.active_contexts.clear()
         if model_value:
             self._reset_chat_log_and_status(f"Model set to: {model_value}. Session reset.")
             try:
                 self.query_one("#chat_message_input", Input).value = ""
             except NoMatches:
                 pass
-            self._apply_contexts_to_input_field()  # Update context indicator
+            self._apply_contexts_to_input_field()
             if self._create_and_set_llm_client():
                 self._log_chat_message(self.ROLE_SYSTEM, "Session ready. LLM client configured.")
                 self._update_chat_status_line(status="Ready")
@@ -354,7 +352,7 @@ class ChatView(Container):
                 self.ROLE_SYSTEM, "Model deselected or unavailable. LLM client cleared."
             )
             self._update_chat_status_line(status="Select model")
-            self._apply_contexts_to_input_field()  # Update context indicator
+            self._apply_contexts_to_input_field()
 
     def _create_and_set_llm_client(self) -> bool:
         try:
@@ -380,7 +378,6 @@ class ChatView(Container):
             return False
 
         client_kwargs = {"model_name": model_name}
-        # Use default temperature from config if panel's temp is None (shouldn't be, but defensive)
         temperature = cfg.get("temperature",
                               self.app.config_manager.get_setting("llm_default_temperature"))
 
@@ -393,7 +390,6 @@ class ChatView(Container):
                        not in ["provider_hint", "model_name", "temperature", "max_history_messages"]
                 }
             )
-            # Ensure options dict exists for Ollama if temperature is to be set
             client_kwargs.setdefault("options", {})
             if temperature is not None:
                 client_kwargs["options"]["temperature"] = temperature
@@ -404,10 +400,9 @@ class ChatView(Container):
                     k: v
                     for k, v in cfg.items()
                     if k not in ["provider_hint", "model_name", "max_history_messages"]
-                    # temperature is passed directly at top level for openai
                 }
             )
-            if temperature is not None:  # OpenAI client takes temperature at top level
+            if temperature is not None:
                 client_kwargs["temperature"] = temperature
 
 
@@ -451,15 +446,102 @@ class ChatView(Container):
         try:
             panel = self.query_one(LLMConfigPanel)
             max_hist = panel.max_history_messages
-            if max_hist == -1:  # -1 means no history
+            if max_hist == -1:
                 return []
-            if max_hist is not None and max_hist == 0:  # 0 means all history
+            if max_hist is not None and max_hist == 0:
                 return hist
             if max_hist is not None and 0 < max_hist < len(hist):
                 return hist[-max_hist:]
         except NoMatches:
             logger.warning("LLMConfigPanel not found in _get_effective_history_for_llm")
-        return hist  # Default to all if panel access fails or max_hist is not 0/-1
+        return hist
+
+    def _prepare_for_stream(self) -> None:
+        self._full_response_content = ""
+        try:
+            chat_list_widget = self.query_one("#chat_log_widget", ChatMessageList)
+            self._current_ai_message_widget = ChatMessageWidget(self.ROLE_AI, "●")
+            chat_list_widget.mount(self._current_ai_message_widget)
+            chat_list_widget.scroll_end(animate=False)
+        except NoMatches:
+            logger.error("ChatView: Could not find #chat_log_widget to prepare for stream.")
+            self._current_ai_message_widget = None
+
+    def _handle_stream_chunk(self, chunk: str) -> None:
+        if self._current_ai_message_widget and self._current_ai_message_widget.is_mounted:
+            self._full_response_content += chunk
+            cursor_char = " ●" if len(self._full_response_content) % 10 < 5 else "●"
+            markdown_widget = self._current_ai_message_widget.query_one(Markdown)
+            markdown_widget.update(self._full_response_content + cursor_char)
+            try:
+                self.query_one("#chat_log_widget", ChatMessageList).scroll_end(animate=False)
+            except NoMatches:  # Should not happen if _current_ai_message_widget is valid
+                pass
+
+    def _handle_stream_end(self, cancelled: bool = False) -> None:
+        final_text = self._full_response_content.strip()
+
+        # Check worker state one last time, as cancellation might happen
+        # between the last chunk and this call.
+        if self.current_llm_worker and self.current_llm_worker.state == WorkerState.CANCELLED:
+            cancelled = True
+
+        if cancelled and not final_text.endswith("[Stopped by user]"):
+            final_text += "\n[Stopped by user]"
+
+        if self._current_ai_message_widget and self._current_ai_message_widget.is_mounted:
+            self._current_ai_message_widget.query_one(Markdown).update(final_text)
+
+        # Add to history only if not already added or if content needs update
+        # For simplicity, we'll add it here, assuming it's the final version.
+        # A more robust approach might involve updating an existing placeholder in chat_history.
+        self.chat_history.append({"role": self.ROLE_AI, "content": final_text})
+        self._cleanup_after_send()
+
+    def _handle_stream_error(self, error: Exception) -> None:
+        logger.error(f"Error in streaming worker task: {error}", exc_info=True)
+        err_msg = f"LLM Error: {str(error)}"
+        if self._current_ai_message_widget and self._current_ai_message_widget.is_mounted:
+            self._current_ai_message_widget.query_one(Markdown).update(err_msg)
+        else:
+            self._log_chat_message(self.ROLE_SYSTEM, err_msg)
+
+        self.chat_history.append({"role": self.ROLE_SYSTEM, "content": err_msg})
+        self._cleanup_after_send()
+
+    def _cleanup_after_send(self) -> None:
+        if self.is_mounted:
+            try:
+                input_widget = self.query_one("#chat_message_input", Input)
+                send_btn = self.query_one("#send_chat_message_button", Button)
+                stop_btn = self.query_one("#stop_chat_message_button", Button)
+
+                input_widget.disabled = False
+                send_btn.disabled = False
+                stop_btn.disabled = True
+                self._update_chat_status_line(status="Ready")
+                input_widget.focus()
+            except NoMatches:
+                logger.warning("ChatView: UI elements not found in _cleanup_after_send.")
+
+        self._current_ai_message_widget = None
+        self.current_llm_worker = None
+
+    def _streaming_worker_task(self, client: LLMChat, message: str,
+                               history: List[Dict[str, str]]) -> None:
+        """The actual function run by the worker to stream messages."""
+        try:
+            # This is a synchronous generator
+            for chunk in client.stream_message(message=message, history=history):
+                if self.current_llm_worker and self.current_llm_worker.is_cancelled:
+                    self.app.call_from_thread(self._handle_stream_end, cancelled=True)
+                    return
+                self.app.call_from_thread(self._handle_stream_chunk, chunk)
+            # Stream finished normally
+            self.app.call_from_thread(self._handle_stream_end, cancelled=False)
+        except Exception as e:
+            logger.error(f"Exception in _streaming_worker_task: {e}", exc_info=True)
+            self.app.call_from_thread(self._handle_stream_error, e)
 
     async def _send_user_message(self) -> None:
         try:
@@ -497,108 +579,21 @@ class ChatView(Container):
         stop_btn.disabled = False
         self._update_chat_status_line(status="Receiving...")
 
+        self._prepare_for_stream()
+
         client = self.llm_client_instance
 
-        # For streaming, we add an empty AI message first, then update it
-        # self.chat_history.append({"role": self.ROLE_AI, "content": ""}) # Add placeholder for AI response
+        task = functools.partial(
+            self._streaming_worker_task, client=client, message=message_for_llm,
+            history=history_for_llm
+        )
 
-        current_ai_message_widget: Optional[ChatMessageWidget] = None
-        try:
-            chat_list_widget = self.query_one("#chat_log_widget", ChatMessageList)
-            current_ai_message_widget = ChatMessageWidget(self.ROLE_AI, "● ● ●")
-            chat_list_widget.mount(current_ai_message_widget)
-            chat_list_widget.scroll_end(animate=False)
+        if self.current_llm_worker and self.current_llm_worker.state == WorkerState.RUNNING:
+            self.current_llm_worker.cancel()
 
-            full_response_content = ""
-
-            task = functools.partial(
-                client.stream_message, message=message_for_llm, history=history_for_llm
-            )
-            if self.current_llm_worker and self.current_llm_worker.state == WorkerState.RUNNING:
-                self.current_llm_worker.cancel()
-
-            self.current_llm_worker = self.app.run_worker(task, thread=True,
-                                                          group="llm_call_stream")
-
-            async for chunk_iterator_result in self.current_llm_worker.stream_output():
-                # stream_output() yields the result of the worker when it's an iterator
-                # So, chunk_iterator_result is the iterator itself.
-                if isinstance(chunk_iterator_result, Iterator):
-                    for chunk in chunk_iterator_result:  # Iterate through the actual chunks
-                        if isinstance(chunk, str):
-                            full_response_content += chunk
-                            if current_ai_message_widget:
-                                current_ai_message_widget.query_one(Markdown).update(
-                                    full_response_content + " ●")
-                            chat_list_widget.scroll_end(animate=False)  # Keep scrolling
-                elif isinstance(chunk_iterator_result,
-                                str):  # Should not happen with stream_message
-                    full_response_content += chunk_iterator_result
-                    if current_ai_message_widget:
-                        current_ai_message_widget.query_one(Markdown).update(
-                            full_response_content + " ●")
-                    chat_list_widget.scroll_end(animate=False)
-
-            await self.current_llm_worker.wait()  # Wait for the worker to fully complete
-
-            final_response_to_log = full_response_content.strip()
-
-            if self.current_llm_worker.state == WorkerState.SUCCESS:
-                # If worker returned an iterator, full_response_content is already built.
-                # If it returned a single string (non-streaming client), result is it.
-                if not full_response_content and isinstance(self.current_llm_worker.result, str):
-                    final_response_to_log = self.current_llm_worker.result.strip()
-
-                if current_ai_message_widget:
-                    current_ai_message_widget.query_one(Markdown).update(final_response_to_log)
-                self.chat_history.append({"role": self.ROLE_AI, "content": final_response_to_log})
-
-
-            elif self.current_llm_worker.state == WorkerState.ERROR:
-                err_msg = str(
-                    self.current_llm_worker.error) if self.current_llm_worker.error else "LLM stream call failed."
-                final_response_to_log = f"Error: {err_msg}"
-                if current_ai_message_widget:
-                    current_ai_message_widget.query_one(Markdown).update(final_response_to_log)
-                self.chat_history.append({"role": self.ROLE_SYSTEM,
-                                          "content": final_response_to_log})  # Log as system error
-            elif self.current_llm_worker.state == WorkerState.CANCELLED:
-                final_response_to_log = full_response_content.strip() + "\n[Stopped by user]"
-                if current_ai_message_widget:
-                    current_ai_message_widget.query_one(Markdown).update(final_response_to_log)
-                self.chat_history.append({"role": self.ROLE_AI, "content": final_response_to_log})
-
-
-        except WorkerCancelled:
-            self._log_chat_message(self.ROLE_SYSTEM, "LLM call setup stopped by user.")
-            if current_ai_message_widget and current_ai_message_widget.is_mounted:
-                current_ai_message_widget.query_one(Markdown).update(
-                    full_response_content.strip() + "\n[Cancelled by worker setup]")
-        except Exception as e:
-            logger.error(f"Unexpected error during LLM stream: {e}", exc_info=True)
-            if current_ai_message_widget and current_ai_message_widget.is_mounted:
-                current_ai_message_widget.query_one(Markdown).update(f"Unexpected error: {e!s}")
-            self._log_chat_message(self.ROLE_SYSTEM, f"Unexpected error: {e!s}")
-        finally:
-            self.current_llm_worker = None
-            if self.is_mounted:
-                try:
-                    input_widget.disabled = False
-                    send_btn.disabled = False
-                    stop_btn.disabled = True
-                    self._update_chat_status_line(status="Ready")
-                    input_widget.focus()
-                    if current_ai_message_widget and current_ai_message_widget.is_mounted:
-                        markdown_widget = current_ai_message_widget.query_one(Markdown)
-                        current_md_content = markdown_widget.document.text.plain  # type: ignore
-                        if current_md_content.endswith(" ●"):
-                            markdown_widget.update(current_md_content[:-2].strip())
-
-                except Exception as e_finally:
-                    logger.error(
-                        f"Error in _send_user_message finally block (stream): {e_finally}",
-                        exc_info=True
-                    )
+        self.current_llm_worker = self.app.run_worker(task, thread=True, group="llm_call_stream",
+                                                      exclusive=True)
+        # No await here; UI updates are handled via call_from_thread from the worker
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
@@ -606,8 +601,15 @@ class ChatView(Container):
             await self._send_user_message()
         elif bid == "stop_chat_message_button":
             if self.current_llm_worker and self.current_llm_worker.state == WorkerState.RUNNING:
+                logger.info("Stop button pressed. Cancelling LLM worker.")
                 self.current_llm_worker.cancel()
+                # _handle_stream_end(cancelled=True) will be called from the worker task if cancellation is successful
                 self._log_chat_message(self.ROLE_SYSTEM, "Attempting to stop LLM response...")
+                try:
+                    self.query_one("#stop_chat_message_button", Button).disabled = True
+                except NoMatches:
+                    pass
+
         elif bid == "prepend_schema_button":
             await self._handle_prepend_context(self.SCHEMA_SECTION_KEY, event.button)
         elif bid == "prepend_metadata_button":
@@ -725,7 +727,7 @@ class ChatView(Container):
             analysis_task = functools.partial(
                 SchemaAnalyser.infer_schema_and_field_stats,
                 collection=pymongo_collection,
-                sample_size=100,  # Using a fixed small sample for chat context
+                sample_size=100,
             )
             worker: Worker[Tuple[Dict, Dict]] = self.app.run_worker(
                 analysis_task, thread=True, group="chat_context_fetch"
@@ -747,7 +749,6 @@ class ChatView(Container):
 
             hierarchical_schema = SchemaAnalyser.schema_to_hierarchical(flat_schema_data or {})
 
-            # Update app-level cache if this was a live fetch
             self.app.current_schema_analysis_results = {
                 "flat_schema": flat_schema_data,
                 "field_stats": field_stats_data,
@@ -825,7 +826,7 @@ class ChatView(Container):
 
             if not documents:
                 self.app.notify(f"No sample documents found for '{coll}'.", title="Data Fetch")
-                return "[]"  # Return empty JSON array string
+                return "[]"
 
             return json.dumps(documents, indent=2, default=str)
 
