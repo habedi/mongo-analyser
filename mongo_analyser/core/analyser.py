@@ -1,6 +1,6 @@
 import logging
 import uuid
-from collections import Counter, OrderedDict
+from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -32,14 +32,14 @@ class SchemaAnalyser:
     @staticmethod
     def extract_schema_and_stats(
         document: Dict,
-        schema: Optional[Union[Dict, OrderedDict]] = None,
-        stats: Optional[Union[Dict, OrderedDict]] = None,
+        schema: Optional[Dict] = None,
+        stats: Optional[Dict] = None,
         prefix: str = "",
-    ) -> Tuple[Union[Dict, OrderedDict], Union[Dict, OrderedDict]]:
+    ) -> Tuple[Dict, Dict]:
         if schema is None:
-            schema = OrderedDict()
+            schema = {}
         if stats is None:
-            stats = OrderedDict()
+            stats = {}
 
         for key, value in document.items():
             full_key = f"{prefix}.{key}" if prefix else key
@@ -81,8 +81,8 @@ class SchemaAnalyser:
     @staticmethod
     def handle_array(
         value: List,
-        schema: Union[Dict, OrderedDict],
-        stats: Union[Dict, OrderedDict],
+        schema: Dict,
+        stats: Dict,
         full_key: str,
     ) -> None:
         current_field_stats = stats[full_key]
@@ -126,27 +126,28 @@ class SchemaAnalyser:
             elif element_types_for_schema:
                 schema[full_key] = {"type": "array<mixed>"}
             else:
-                schema[full_key] = {"type": "array<unknown>"}
+                schema[full_key] = {
+                    "type": "array<unknown>"}  # Should not happen if value is not empty
 
             for elem in value:
                 SchemaAnalyser.handle_simple_value(
                     elem,
-                    {},
+                    {},  # schema is not built for individual array elements here, only stats
                     current_field_stats["array_element_stats"],
-                    full_key,
+                    full_key,  # full_key is for the array itself, not its elements
                     is_array_element=True,
                 )
 
         try:
             hashable_value = SchemaAnalyser._make_hashable(value)
             current_field_stats["values"].add(hashable_value)
-        except TypeError:
+        except TypeError:  # pragma: no cover
             current_field_stats["values"].add(f"unhashable_array_len_{len(value)}")
 
     @staticmethod
     def handle_simple_value(
         value: Any,
-        schema: Union[Dict, OrderedDict],
+        schema: Dict,
         stats_dict_to_update: Dict,
         full_key: str,
         is_array_element: bool,
@@ -186,7 +187,7 @@ class SchemaAnalyser:
             schema[full_key] = {"type": value_type_name}
             try:
                 stats_dict_to_update["values"].add(SchemaAnalyser._make_hashable(value))
-            except Exception:
+            except Exception:  # pragma: no cover
                 stats_dict_to_update["values"].add(f"unhashable_value_type_{type(value).__name__}")
 
         stats_dict_to_update["type_counts"].update([value_type_name])
@@ -200,7 +201,7 @@ class SchemaAnalyser:
                 stats_dict_to_update.get("numeric_max", float("-inf")), num_val
             )
         elif isinstance(value, str):
-            if len(value) < 256:
+            if len(value) < 256:  # Only track frequencies for reasonably short strings
                 stats_dict_to_update["value_frequencies"].update([value])
         elif isinstance(value, datetime):
             cur_min = stats_dict_to_update.get("date_min")
@@ -217,7 +218,7 @@ class SchemaAnalyser:
         if not db_manager.db_connection_active(
             uri=uri, db_name=db_name, server_timeout_ms=server_timeout_ms
         ):
-            raise PyMongoConnectionFailure(
+            raise PyMongoConnectionFailure(  # pragma: no cover
                 f"Failed to establish or verify active connection to MongoDB for {db_name}"
             )
         database = db_manager.get_mongo_db()
@@ -228,14 +229,14 @@ class SchemaAnalyser:
         if not db_manager.db_connection_active(
             uri=uri, db_name=db_name, server_timeout_ms=server_timeout_ms
         ):
-            raise PyMongoConnectionFailure(
+            raise PyMongoConnectionFailure(  # pragma: no cover
                 f"Failed to establish or verify active connection to MongoDB for listing collections in {db_name}"
             )
 
         database = db_manager.get_mongo_db()
         try:
             return sorted(database.list_collection_names())
-        except PyMongoOperationFailure as e:
+        except PyMongoOperationFailure as e:  # pragma: no cover
             logger.error(f"MongoDB operation failure listing collections for DB '{db_name}': {e}")
             raise
 
@@ -243,14 +244,14 @@ class SchemaAnalyser:
     def infer_schema_and_field_stats(
         collection: PyMongoCollection, sample_size: int, batch_size: int = 1000
     ) -> Tuple[Dict, Dict]:
-        schema: OrderedDict = OrderedDict()
-        stats: OrderedDict = OrderedDict()
+        schema: Dict = {}
+        stats: Dict = {}
         total_docs = 0
 
         try:
             docs = (
                 collection.find().batch_size(batch_size)
-                if sample_size < 0
+                if sample_size < 0  # Negative means all documents
                 else collection.aggregate([{"$sample": {"size": sample_size}}]).batch_size(
                     batch_size
                 )
@@ -260,13 +261,13 @@ class SchemaAnalyser:
                 schema, stats = SchemaAnalyser.extract_schema_and_stats(doc, schema, stats)
                 if sample_size > 0 and total_docs >= sample_size:
                     break
-        except PyMongoOperationFailure as e:
+        except PyMongoOperationFailure as e:  # pragma: no cover
             logger.error(
                 f"Error during schema inference on {collection.database.name}.{collection.name}: {e}"
             )
             raise
 
-        final_stats_summary: OrderedDict = OrderedDict()
+        final_stats_summary: Dict = {}
         for key, field_stat_data in stats.items():
             values_set = field_stat_data.get("values", set())
             count = field_stat_data.get("count", 0)
@@ -299,7 +300,7 @@ class SchemaAnalyser:
             if val_freqs:
                 processed["top_values"] = dict(val_freqs.most_common(5))
 
-            if arr_type_counts:
+            if arr_type_counts:  # If array elements were processed
                 arr_processed: Dict[str, Any] = {
                     "type_distribution": dict(arr_type_counts.most_common(5))
                 }
@@ -317,9 +318,9 @@ class SchemaAnalyser:
 
             final_stats_summary[key] = processed
 
-        sorted_schema = OrderedDict(sorted(schema.items()))
-        sorted_stats = OrderedDict(sorted(final_stats_summary.items()))
-        return dict(sorted_schema), dict(sorted_stats)
+        sorted_schema = dict(sorted(schema.items()))
+        sorted_stats = dict(sorted(final_stats_summary.items()))
+        return sorted_schema, sorted_stats
 
     @staticmethod
     def schema_to_hierarchical(schema: Dict) -> Dict:

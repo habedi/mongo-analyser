@@ -9,7 +9,9 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.driver import Driver
+from textual.events import Paste
 from textual.reactive import reactive
+from textual.widget import Widget
 from textual.widgets import (
     ContentSwitcher,
     DataTable,
@@ -20,6 +22,7 @@ from textual.widgets import (
     Static,
     Tab,
     Tabs,
+    TextArea,
 )
 
 from mongo_analyser.core import db as core_db_manager
@@ -142,6 +145,9 @@ class MongoAnalyserApp(App[None]):
         if isinstance(focused, Input):
             source_widget_type = "Input"
             text_to_copy = focused.selected_text if focused.selected_text else focused.value
+        elif isinstance(focused, TextArea):
+            source_widget_type = "TextArea"
+            text_to_copy = focused.selected_text if focused.selected_text else focused.text
         elif isinstance(focused, DataTable):
             source_widget_type = "DataTable"
             if focused.show_cursor and focused.cursor_coordinate:
@@ -222,6 +228,34 @@ class MongoAnalyserApp(App[None]):
             severity="information",
             timeout=3,
         )
+
+    async def action_app_paste(self) -> None:
+        focused_widget = self.focused
+        if isinstance(focused_widget, (Input, TextArea)):
+
+            try:
+
+                self.notify(
+                    "Pasting... (relies on terminal/widget support)",
+                    title="Paste Action",
+                    severity="information",
+                    timeout=2
+                )
+
+
+
+
+
+            except Exception as e:
+                logger.error(f"Error attempting to handle paste action: {e}", exc_info=True)
+                self.notify("Paste action encountered an issue.", title="Paste Error",
+                            severity="error")
+        else:
+            self.notify(
+                "Cannot paste here. Focus an input field.",
+                title="Paste Info",
+                severity="warning"
+            )
 
     def action_toggle_theme(self) -> None:
         self.dark = not self.dark

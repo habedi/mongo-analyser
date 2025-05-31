@@ -17,13 +17,14 @@ class OllamaChat(LLMChat):
     def __init__(self, model_name: str, host: str = None, timeout: int = 60, **kwargs: Any):
         self._host = host
         self._timeout = timeout
-        self._client_options = kwargs.pop("options", {})
-        if not isinstance(self._client_options, dict):
+
+        self._client_options_from_constructor = kwargs.pop("options", {})
+        if not isinstance(self._client_options_from_constructor, dict):
             logger.warning(
-                f"Invalid 'options' provided to OllamaChat"
-                f" (expected dict, got {type(self._client_options)}). Resetting to empty dict."
+                f"Invalid 'options' provided to OllamaChat constructor"
+                f" (expected dict, got {type(self._client_options_from_constructor)}). Resetting to empty dict."
             )
-            self._client_options = {}
+            self._client_options_from_constructor = {}
 
         self._keep_alive = kwargs.pop("keep_alive", "5m")
         self._client_init_kwargs = kwargs
@@ -31,7 +32,7 @@ class OllamaChat(LLMChat):
         init_kwargs_for_super = {
             "host": self._host,
             "timeout": self._timeout,
-            "options": self._client_options.copy(),
+            "options": self._client_options_from_constructor.copy(),
             "keep_alive": self._keep_alive,
             **self._client_init_kwargs,
         }
@@ -68,15 +69,14 @@ class OllamaChat(LLMChat):
             )
 
     def _get_effective_options(self) -> Dict[str, Any]:
-        effective_opts = self._client_options.copy()
+        effective_opts = self._client_options_from_constructor.copy()
+
         if isinstance(self.client_config.get("options"), dict):
             effective_opts.update(self.client_config["options"])
 
-        if (
-            "temperature" not in effective_opts
-            and self.client_config.get("temperature") is not None
-        ):
-            effective_opts["temperature"] = self.client_config["temperature"]
+        config_temperature = self.client_config.get("temperature")
+        if config_temperature is not None:
+            effective_opts["temperature"] = config_temperature
 
         return effective_opts
 
@@ -129,6 +129,7 @@ class OllamaChat(LLMChat):
                     if content_chunk:
                         yield content_chunk
                 else:
+                    # Optionally handle final chunk data if needed, e.g., response.get('total_duration')
                     break
         except ollama.ResponseError as e:
             logger.error(
@@ -159,8 +160,7 @@ class OllamaChat(LLMChat):
 
         try:
             logger.debug(
-                f"Attempting to list Ollama models with client args: {client_args_for_listing}"
-            )
+                f"Attempting to list Ollama models with client args: {client_args_for_listing}")
             temp_client = ollama.Client(**client_args_for_listing)
             models_data = temp_client.list()
 
@@ -189,6 +189,7 @@ class OllamaChat(LLMChat):
         except Exception as e:
             logger.error(
                 f"Error fetching Ollama models with client_args {client_args_for_listing}: {e}",
-                exc_info=True,
+                exc_info=True
             )
             return []
+
