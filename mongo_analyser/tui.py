@@ -233,7 +233,8 @@ class MongoAnalyserApp(App[None]):
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    "Failed to switch theme to '%s': %s. Theme may not be registered or CSS is missing.",
+                    "Failed to switch theme to '%s': %s."
+                    " Theme may not be registered or CSS is missing.",
                     chosen_theme,
                     e,
                 )
@@ -254,7 +255,8 @@ def main_interactive_tui(
             log_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             print(
-                f"Warning: Could not create log directory {log_dir}: {e}. Log file might not be created.",
+                f"Warning: Could not create log directory {log_dir}: {e}."
+                f" Log file might not be created.",
                 file=sys.stderr,
             )
 
@@ -288,7 +290,8 @@ def main_interactive_tui(
         else:
             if app_logger.isEnabledFor(logging.DEBUG):
                 app_logger.debug(
-                    "File logging handler for %s already exists on %s.", log_file, app_logger.name
+                    "File logging handler for %s already exists on %s.",
+                    log_file, app_logger.name
                 )
 
         if app_logger.getEffectiveLevel() > logging.DEBUG:
