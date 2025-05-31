@@ -19,6 +19,7 @@ from textual.widgets import (
     Header,
     Input,
     Label,
+    Select,
     Static,
     Tab,
     Tabs,
@@ -26,7 +27,14 @@ from textual.widgets import (
 )
 
 from mongo_analyser.core import db as core_db_manager
-from mongo_analyser.views import ChatView, DataExplorerView, DBConnectionView, SchemaAnalysisView
+from mongo_analyser.core.config_manager import ConfigManager, VALID_THEMES, DEFAULT_THEME_NAME
+from mongo_analyser.views import (
+    ChatView,
+    ConfigView,
+    DataExplorerView,
+    DBConnectionView,
+    SchemaAnalysisView,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +46,7 @@ class MongoAnalyserApp(App[None]):
     CSS_PATH = "app.tcss"
 
     BINDINGS = [
-        Binding("q", "quit", "Quit", show=True, priority=True),
+        Binding("q", "quit_app_action", "Quit", show=True, priority=True),
         Binding("ctrl+t", "toggle_theme", "Toggle Theme", show=True),
         Binding("ctrl+c", "app_copy", "Copy Text", show=True, key_display="Ctrl+C"),
         Binding("ctrl+insert", "app_copy", "Copy Text (Alt)", show=False, priority=True),
@@ -52,8 +60,6 @@ class MongoAnalyserApp(App[None]):
     active_collection: reactive[Optional[str]] = reactive(None)
     current_schema_analysis_results: reactive[Optional[dict]] = reactive(None)
 
-    dark: bool
-
     def __init__(
         self,
         driver_class: Optional[Type[Driver]] = None,
@@ -62,30 +68,74 @@ class MongoAnalyserApp(App[None]):
         initial_mongo_uri: Optional[str] = None,
         initial_db_name: Optional[str] = None,
     ):
+        self.config_manager = ConfigManager()
+        configured_theme_name = self.config_manager.get_setting("theme", DEFAULT_THEME_NAME)
+        if configured_theme_name not in VALID_THEMES:
+            configured_theme_name = DEFAULT_THEME_NAME
+
         super().__init__(driver_class, css_path, watch_css)
-        self.dark = True
+
+        self.theme = configured_theme_name
+
         self._initial_mongo_uri = initial_mongo_uri
         self._initial_db_name = initial_db_name
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "MongoAnalyserApp initialized with initial URI: '%s', initial DB name: '%s'",
+                "MongoAnalyserApp initialized with initial URI: '%s', initial DB name: '%s', theme: '%s'",
                 self._initial_mongo_uri,
                 self._initial_db_name,
+                self.theme,
             )
 
     def on_mount(self) -> None:
-        chosen_theme = "dracula" if self.dark else "textual-dark"
         try:
-            self.theme = chosen_theme
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("Starting with theme: %s", chosen_theme)
+            schema_view = self.query_one(SchemaAnalysisView)
+            schema_view.query_one("#schema_sample_size_input", Input).value = str(
+                self.config_manager.get_setting("schema_analysis_default_sample_size")
+            )
+        except NoMatches:
+            logger.warning("Could not find SchemaAnalysisView or its sample size input on mount.")
+
+        try:
+            explorer_view = self.query_one(DataExplorerView)
+            explorer_view.query_one("#data_explorer_sample_size_input", Input).value = str(
+                self.config_manager.get_setting("data_explorer_default_sample_size")
+            )
+        except NoMatches:
+            logger.warning("Could not find DataExplorerView or its sample size input on mount.")
+
+        try:
+            chat_view = self.query_one(ChatView)
+            llm_config_panel = chat_view.query_one("#chat_llm_config_panel")
+
+            default_provider = self.config_manager.get_setting("llm_default_provider")
+            default_temp = self.config_manager.get_setting(
+                "llm_default_temperature")  # Corrected key
+            default_hist = self.config_manager.get_setting(
+                "llm_default_max_history")  # Corrected key
+
+            provider_select = llm_config_panel.query_one("#llm_config_provider_select", Select)
+            if provider_select.value != default_provider:
+                provider_select.value = default_provider  # This will trigger model loading
+
+            # Temperature and history are set after provider ensures panel is ready
+            temp_input = llm_config_panel.query_one("#llm_config_temperature", Input)
+            if temp_input.value != str(default_temp):
+                temp_input.value = str(default_temp)
+
+            hist_input = llm_config_panel.query_one("#llm_config_max_history", Input)
+            if hist_input.value != str(default_hist):
+                hist_input.value = str(default_hist)
+
+            # The default model for the provider will be handled by ChatView's
+            # _load_models_for_provider and handle_model_change_from_llm_config_panel
+            # which can check config_manager for the provider-specific default model.
+
+        except NoMatches:
+            logger.warning(
+                "Could not find ChatView or LLMConfigPanel elements on mount for defaults.")
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Failed to set initial theme '%s': %s. Falling back to default.",
-                    chosen_theme,
-                    e,
-                )
+            logger.error(f"Error applying LLM defaults from config on mount: {e}", exc_info=True)
 
     def watch_available_collections(self) -> None:
         for view_cls in (SchemaAnalysisView, DataExplorerView):
@@ -114,12 +164,14 @@ class MongoAnalyserApp(App[None]):
             Tab("Schema Analysis", id="tab_schema_analysis"),
             Tab("Data Explorer", id="tab_data_explorer"),
             Tab("Chat", id="tab_chat"),
+            Tab("Config", id="tab_config"),
         )
         with ContentSwitcher(initial="view_db_connection_content"):
             yield DBConnectionView(id="view_db_connection_content")
             yield SchemaAnalysisView(id="view_schema_analysis_content")
             yield DataExplorerView(id="view_data_explorer_content")
             yield ChatView(id="view_chat_content")
+            yield ConfigView(id="view_config_content")
         yield Footer()
 
     async def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
@@ -133,6 +185,8 @@ class MongoAnalyserApp(App[None]):
             widget_to_focus = switcher.get_widget_by_id(view_id)
             if hasattr(widget_to_focus, "focus_default_widget"):
                 widget_to_focus.focus_default_widget()
+            if view_id == "view_config_content" and hasattr(widget_to_focus, "load_settings_to_ui"):
+                widget_to_focus.load_settings_to_ui()
         except NoMatches:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Could not switch to view '%s' or find its content widget.", view_id)
@@ -232,20 +286,13 @@ class MongoAnalyserApp(App[None]):
     async def action_app_paste(self) -> None:
         focused_widget = self.focused
         if isinstance(focused_widget, (Input, TextArea)):
-
             try:
-
                 self.notify(
                     "Pasting... (relies on terminal/widget support)",
                     title="Paste Action",
                     severity="information",
                     timeout=2
                 )
-
-
-
-
-
             except Exception as e:
                 logger.error(f"Error attempting to handle paste action: {e}", exc_info=True)
                 self.notify("Paste action encountered an issue.", title="Paste Error",
@@ -258,20 +305,37 @@ class MongoAnalyserApp(App[None]):
             )
 
     def action_toggle_theme(self) -> None:
-        self.dark = not self.dark
-        chosen_theme = "dracula" if self.dark else "textual-dark"
+        current_theme_name = self.theme
+
+        if not VALID_THEMES:
+            logger.warning("VALID_THEMES is empty. Cannot toggle theme.")
+            return
+
         try:
-            self.theme = chosen_theme
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("Switched to theme: %s", chosen_theme)
-        except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Failed to switch theme to '%s': %s."
-                    " Theme may not be registered or CSS is missing.",
-                    chosen_theme,
-                    e,
-                )
+            current_index = VALID_THEMES.index(current_theme_name)
+            next_index = (current_index + 1) % len(VALID_THEMES)
+            new_theme_name = VALID_THEMES[next_index]
+        except ValueError:
+            logger.warning(
+                f"Current theme '{current_theme_name}' not in VALID_THEMES. Defaulting to first in list.")
+            new_theme_name = VALID_THEMES[0] if VALID_THEMES else DEFAULT_THEME_NAME
+
+        self.theme = new_theme_name
+
+        if hasattr(self, 'config_manager') and self.config_manager:
+            self.config_manager.update_setting("theme", new_theme_name)
+            logger.info(f"Theme toggled to: {new_theme_name} and updated in config manager.")
+        else:
+            logger.info(f"Theme toggled to: {new_theme_name} (config manager not available).")
+
+    async def action_quit_app_action(self) -> None:
+        if hasattr(self, "config_manager") and self.config_manager:
+            logger.info("Attempting to save configuration on quit...")
+            if self.config_manager.save_config():
+                logger.info("Configuration saved successfully on quit.")
+            else:
+                logger.error("Failed to save configuration on quit. Check logs.")
+        await self.action_quit()
 
 
 def main_interactive_tui(
@@ -280,10 +344,42 @@ def main_interactive_tui(
     initial_db_name: Optional[str] = None,
 ):
     effective_log_level_str = log_level_override or os.environ.get("LOG_LEVEL", "INFO").upper()
+
+    temp_formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s")
+    temp_handler = logging.StreamHandler(sys.stderr)
+    temp_handler.setFormatter(temp_formatter)
+
+    if effective_log_level_str != "OFF":
+        logging.getLogger().setLevel(effective_log_level_str)
+        if temp_handler not in logging.getLogger().handlers:
+            logging.getLogger().addHandler(temp_handler)
+    else:
+        logging.disable(logging.CRITICAL + 1)
+
     app_logger = logging.getLogger("mongo_analyser")
 
-    if effective_log_level_str.upper() != "OFF":
-        log_dir = Path(os.getenv("MONGO_ANALYSER_LOG_DIR", Path.cwd()))
+    temp_config_manager = ConfigManager()
+    configured_log_level = temp_config_manager.get_setting("default_log_level", "INFO").upper()
+
+    if configured_log_level == "OFF":
+        logging.disable(logging.CRITICAL + 1)
+        if temp_handler in logging.getLogger().handlers:
+            logging.getLogger().removeHandler(temp_handler)
+    else:
+        if logging.getLogger().disabled:
+            logging.disable(logging.NOTSET)
+
+        app_logger.setLevel(configured_log_level)
+        if logging.getLogger().getEffectiveLevel() > app_logger.getEffectiveLevel():
+            logging.getLogger().setLevel(app_logger.getEffectiveLevel())
+
+        if temp_handler not in app_logger.handlers and temp_handler not in logging.getLogger().handlers:
+            app_logger.addHandler(temp_handler)
+
+    if configured_log_level != "OFF":
+        log_dir = Path(os.getenv("MONGO_ANALYSER_LOG_DIR",
+                                 Path.home() / ".local" / "share" / "mongo_analyser" / "logs"))
         log_file = log_dir / "mongo_analyser_tui.log"
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
@@ -294,7 +390,7 @@ def main_interactive_tui(
                 file=sys.stderr,
             )
 
-        formatter = logging.Formatter(
+        file_formatter = logging.Formatter(
             "%(asctime)s %(levelname)-8s %(name)s:%(lineno)d - %(message)s"
         )
 
@@ -308,9 +404,8 @@ def main_interactive_tui(
         if not has_file_handler_for_this_file:
             try:
                 fh = logging.FileHandler(log_file, mode="a", encoding="utf-8")
-
                 fh.setLevel(app_logger.getEffectiveLevel())
-                fh.setFormatter(formatter)
+                fh.setFormatter(file_formatter)
                 app_logger.addHandler(fh)
                 if app_logger.isEnabledFor(logging.DEBUG):
                     app_logger.debug(
@@ -330,16 +425,18 @@ def main_interactive_tui(
 
         if app_logger.getEffectiveLevel() > logging.DEBUG:
             for lib_logger_name in [
-                "httpx",
-                "httpcore",
-                "openai",
-                "google.generativeai",
-                "pymongo.command",
-                "urllib3.connectionpool",
+                "httpx", "httpcore", "openai", "google.generativeai",
+                "pymongo.command", "urllib3.connectionpool", "textual"
             ]:
                 lib_logger = logging.getLogger(lib_logger_name)
                 if lib_logger.getEffectiveLevel() < logging.WARNING:
                     lib_logger.setLevel(logging.WARNING)
+
+    if temp_handler in logging.getLogger().handlers:
+        is_file_handler_present = any(
+            isinstance(h, logging.FileHandler) for h in app_logger.handlers)
+        if is_file_handler_present or configured_log_level == "OFF":
+            logging.getLogger().removeHandler(temp_handler)
 
     if logger.isEnabledFor(logging.INFO):
         logger.info(
@@ -377,18 +474,10 @@ if __name__ == "__main__":
     print(
         "Running tui.py directly. For CLI arguments, use 'mongo_analyser' or 'python -m mongo_analyser.cli'."
     )
-    _log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-    if _log_level == "OFF":
-        logging.disable(logging.CRITICAL + 1)
-    else:
-        logging.basicConfig(
-            level=_log_level,
-            format="%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s",
-            handlers=[logging.StreamHandler(sys.stderr)],
-            force=True,
-        )
+    _log_level_cli = os.environ.get("LOG_LEVEL", "INFO").upper()
     main_interactive_tui(
-        log_level_override=_log_level,
+        log_level_override=_log_level_cli,
         initial_mongo_uri=os.getenv("MONGO_URI"),
         initial_db_name=os.getenv("MONGO_DATABASE"),
     )
+
