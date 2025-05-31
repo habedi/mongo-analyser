@@ -44,6 +44,7 @@ CSSPathType = Union[str, Path, List[Union[str, Path]]]
 class MongoAnalyserApp(App[None]):
     TITLE = "Mongo Analyser TUI"
     CSS_PATH = "app.tcss"
+    # App.dark is inherited and will be updated by Textual when self.theme is set
 
     BINDINGS = [
         Binding("q", "quit_app_action", "Quit", show=True, priority=True),
@@ -60,8 +61,6 @@ class MongoAnalyserApp(App[None]):
     active_collection: reactive[Optional[str]] = reactive(None)
     current_schema_analysis_results: reactive[Optional[dict]] = reactive(None)
 
-    dark: bool  # Maintained for logic, actual theme controlled by self.theme
-
     def __init__(
         self,
         driver_class: Optional[Type[Driver]] = None,
@@ -71,20 +70,12 @@ class MongoAnalyserApp(App[None]):
         initial_db_name: Optional[str] = None,
     ):
         self.config_manager = ConfigManager()
-        # Get a valid theme name from config or use default
         configured_theme_name = self.config_manager.get_setting("theme", DEFAULT_THEME_NAME)
-        if configured_theme_name not in VALID_THEMES:  # Ensure validity
+        if configured_theme_name not in VALID_THEMES:
             configured_theme_name = DEFAULT_THEME_NAME
 
-        # Set self.dark based on whether the chosen theme is considered "dark"
-        # For simplicity, assume "textual-dark" is the primary dark theme.
-        # This could be expanded if more themes are added to VALID_THEMES.
-        self.dark = (configured_theme_name == "textual-dark")
-
-        # Call super().__init__ BEFORE setting self.theme
         super().__init__(driver_class, css_path, watch_css)
 
-        # Now it's safe to set self.theme with a valid registered theme name
         self.theme = configured_theme_name
 
         self._initial_mongo_uri = initial_mongo_uri
@@ -133,10 +124,6 @@ class MongoAnalyserApp(App[None]):
             hist_input = llm_config_panel.query_one("#llm_config_max_history", Input)
             if hist_input.value != str(default_hist):
                 hist_input.value = str(default_hist)
-
-            # Note: Default LLM model is not pre-selected here as it depends on provider's model list.
-            # The ConfigView can store a preferred model name, and ChatView's model loading logic
-            # could try to select it if available after fetching models for the default provider.
 
         except NoMatches:
             logger.warning(
@@ -312,18 +299,22 @@ class MongoAnalyserApp(App[None]):
             )
 
     def action_toggle_theme(self) -> None:
-        # Determine current theme and toggle to the other primary one
         current_theme_name = self.theme
 
-        # Simple toggle between "textual-dark" and "solarized-light"
-        # You can expand this logic if you add more themes to VALID_THEMES
-        if current_theme_name == "textual-dark":
-            new_theme_name = "solarized-light"
-        else:  # Default to textual-dark if current is not textual-dark (e.g., it's solarized-light or another)
-            new_theme_name = "textual-dark"
+        if not VALID_THEMES:
+            logger.warning("VALID_THEMES is empty. Cannot toggle theme.")
+            return
+
+        try:
+            current_index = VALID_THEMES.index(current_theme_name)
+            next_index = (current_index + 1) % len(VALID_THEMES)
+            new_theme_name = VALID_THEMES[next_index]
+        except ValueError:
+            logger.warning(
+                f"Current theme '{current_theme_name}' not in VALID_THEMES. Defaulting to first in list.")
+            new_theme_name = VALID_THEMES[0] if VALID_THEMES else DEFAULT_THEME_NAME
 
         self.theme = new_theme_name
-        self.dark = (new_theme_name == "textual-dark")  # Update self.dark accordingly
 
         if hasattr(self, 'config_manager') and self.config_manager:
             self.config_manager.update_setting("theme", new_theme_name)
