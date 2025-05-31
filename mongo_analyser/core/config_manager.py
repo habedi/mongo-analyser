@@ -30,10 +30,12 @@ DEFAULT_SETTINGS = {
     "default_log_level": "INFO",
     "schema_analysis_default_sample_size": 1000,
     "data_explorer_default_sample_size": 10,
-    "llm_provider": "ollama",
-    "llm_model": None,
-    "llm_temperature": 0.7,
-    "llm_max_history": 20,
+    "llm_default_provider": "ollama",
+    "llm_default_model_ollama": "llama3:8b",  # Provider-specific default model
+    "llm_default_model_openai": "gpt-4o-mini",  # Provider-specific default model
+    "llm_default_model_google": "gemini-1.5-flash-latest",  # Provider-specific default model
+    "llm_default_temperature": 0.7,
+    "llm_default_max_history": 20,
 }
 
 
@@ -44,11 +46,12 @@ class ConfigManager:
         self.load_config()
 
     def _get_default_config_path(self) -> Path:
-        xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
-        if xdg_config_home:
-            base_path = Path(xdg_config_home)
+        # Prioritize XDG_DATA_HOME if set, otherwise use ~/.local/share/
+        xdg_data_home = os.environ.get("XDG_DATA_HOME")
+        if xdg_data_home:
+            base_path = Path(xdg_data_home)
         else:
-            base_path = Path.home() / ".config"
+            base_path = Path.home() / ".local" / "share"
 
         config_dir = base_path / DEFAULT_CONFIG_DIR_NAME
         return config_dir / DEFAULT_CONFIG_FILE_NAME
@@ -69,7 +72,10 @@ class ConfigManager:
                 f"Configuration file not found at {self._config_path}. Using defaults and will create on save."
             )
 
-        self._config = {**DEFAULT_SETTINGS, **loaded_settings}
+        # Merge loaded settings with defaults, ensuring all default keys are present
+        self._config = DEFAULT_SETTINGS.copy()
+        self._config.update(loaded_settings)  # Loaded settings override defaults
+
         # Validate loaded theme
         if self._config.get("theme") not in VALID_THEMES:
             logger.warning(
@@ -94,6 +100,7 @@ class ConfigManager:
             if theme_value not in VALID_THEMES:
                 return default if default is not None else DEFAULT_THEME_NAME
             return theme_value
+        # For other keys, return from config or the provided default, or finally from DEFAULT_SETTINGS
         return self._config.get(key, default if default is not None else DEFAULT_SETTINGS.get(key))
 
     def update_setting(self, key: str, value: Any) -> None:

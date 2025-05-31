@@ -10,7 +10,8 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Button, Input, Label, Select, Static
 
-from mongo_analyser.core.config_manager import DEFAULT_SETTINGS, VALID_THEMES, ConfigManager
+from mongo_analyser.core.config_manager import DEFAULT_SETTINGS, VALID_THEMES, ConfigManager, \
+    DEFAULT_THEME_NAME
 from mongo_analyser.dialogs import ConfirmDialog, ErrorDialog
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,6 @@ class ConfigView(Container):
         with VerticalScroll(id="config_view_scroll_panel"):
             yield Label("Theme:", classes="config_label")
             yield Select(
-                # Use valid Textual theme names as values
                 [(name.replace("-", " ").title(), name) for name in VALID_THEMES],
                 id="config_theme_select",
                 value=DEFAULT_SETTINGS["theme"]
@@ -81,27 +81,41 @@ class ConfigView(Container):
             yield Label("LLM Default Provider:", classes="config_label")
             yield Select(
                 [("Ollama", "ollama"), ("OpenAI", "openai"), ("Google", "google")],
-                id="config_llm_provider_select",
-                value=DEFAULT_SETTINGS["llm_provider"],
+                id="config_llm_default_provider_select",  # Changed ID for clarity
+                value=DEFAULT_SETTINGS["llm_default_provider"],
                 allow_blank=False
             )
-            yield Label("LLM Default Model Name (optional):", classes="config_label")
+            # Provider-specific model inputs
+            yield Label("LLM Default Model - Ollama:", classes="config_label")
             yield Input(
-                id="config_llm_model_input",
-                value=DEFAULT_SETTINGS["llm_model"] or "",
-                placeholder="e.g., llama3:8b or gpt-4o-mini"
+                id="config_llm_model_ollama_input",
+                value=DEFAULT_SETTINGS["llm_default_model_ollama"] or "",
+                placeholder="e.g., llama3:8b"
             )
+            yield Label("LLM Default Model - OpenAI:", classes="config_label")
+            yield Input(
+                id="config_llm_model_openai_input",
+                value=DEFAULT_SETTINGS["llm_default_model_openai"] or "",
+                placeholder="e.g., gpt-4o-mini"
+            )
+            yield Label("LLM Default Model - Google:", classes="config_label")
+            yield Input(
+                id="config_llm_model_google_input",
+                value=DEFAULT_SETTINGS["llm_default_model_google"] or "",
+                placeholder="e.g., gemini-1.5-flash-latest"
+            )
+
             yield Label(f"LLM Default Temperature:", classes="config_label")
             yield Input(
                 id="config_llm_temperature_input",
-                value=str(DEFAULT_SETTINGS["llm_temperature"]),
+                value=str(DEFAULT_SETTINGS["llm_default_temperature"]),
                 placeholder="e.g., 0.7",
                 type="number"
             )
             yield Label(f"LLM Default Max History Messages:", classes="config_label")
             yield Input(
                 id="config_llm_max_history_input",
-                value=str(DEFAULT_SETTINGS["llm_max_history"]),
+                value=str(DEFAULT_SETTINGS["llm_default_max_history"]),
                 placeholder="e.g., 20 (0=all, -1=none)",
                 type="integer"
             )
@@ -114,8 +128,13 @@ class ConfigView(Container):
         if not self._config_manager:
             return
         try:
-            self.query_one("#config_theme_select", Select).value = self._config_manager.get_setting(
-                "theme")
+            theme_to_set = self._config_manager.get_setting("theme")
+            theme_select = self.query_one("#config_theme_select", Select)
+            if theme_to_set in [opt_val for _, opt_val in theme_select.options]:
+                theme_select.value = theme_to_set
+            else:
+                theme_select.value = DEFAULT_THEME_NAME
+
             self.query_one("#config_log_level_select",
                            Select).value = self._config_manager.get_setting("default_log_level")
             self.query_one("#config_schema_sample_size_input", Input).value = str(
@@ -123,14 +142,22 @@ class ConfigView(Container):
             self.query_one("#config_explorer_sample_size_input", Input).value = str(
                 self._config_manager.get_setting("data_explorer_default_sample_size"))
 
-            self.query_one("#config_llm_provider_select",
-                           Select).value = self._config_manager.get_setting("llm_provider")
-            self.query_one("#config_llm_model_input",
-                           Input).value = self._config_manager.get_setting("llm_model") or ""
+            self.query_one("#config_llm_default_provider_select",
+                           Select).value = self._config_manager.get_setting("llm_default_provider")
+            self.query_one("#config_llm_model_ollama_input",
+                           Input).value = self._config_manager.get_setting(
+                "llm_default_model_ollama") or ""
+            self.query_one("#config_llm_model_openai_input",
+                           Input).value = self._config_manager.get_setting(
+                "llm_default_model_openai") or ""
+            self.query_one("#config_llm_model_google_input",
+                           Input).value = self._config_manager.get_setting(
+                "llm_default_model_google") or ""
+
             self.query_one("#config_llm_temperature_input", Input).value = str(
-                self._config_manager.get_setting("llm_temperature"))
+                self._config_manager.get_setting("llm_default_temperature"))
             self.query_one("#config_llm_max_history_input", Input).value = str(
-                self._config_manager.get_setting("llm_max_history"))
+                self._config_manager.get_setting("llm_default_max_history"))
 
             logger.info("ConfigView: Settings loaded into UI.")
         except NoMatches as e:
@@ -141,15 +168,13 @@ class ConfigView(Container):
     def _collect_settings_from_ui(self) -> Dict[str, Any]:
         settings = {}
         try:
-            # Ensure the value from Select is a string and a valid theme name
             theme_value = self.query_one("#config_theme_select", Select).value
-            settings["theme"] = str(theme_value) if theme_value != Select.BLANK else \
-            DEFAULT_SETTINGS["theme"]
-            if settings[
-                "theme"] not in VALID_THEMES:  # Should not happen if Select options are correct
+            settings["theme"] = str(
+                theme_value) if theme_value != Select.BLANK and theme_value is not None else DEFAULT_THEME_NAME
+            if settings["theme"] not in VALID_THEMES:
                 logger.warning(
                     f"Invalid theme '{settings['theme']}' collected from UI. Using default.")
-                settings["theme"] = DEFAULT_SETTINGS["theme"]
+                settings["theme"] = DEFAULT_THEME_NAME
 
             settings["default_log_level"] = str(
                 self.query_one("#config_log_level_select", Select).value)
@@ -173,23 +198,30 @@ class ConfigView(Container):
                 logger.warning(
                     f"Invalid explorer sample size '{explorer_sample_size_str}', using default.")
 
-            settings["llm_provider"] = str(
-                self.query_one("#config_llm_provider_select", Select).value)
-            llm_model_val = self.query_one("#config_llm_model_input", Input).value.strip()
-            settings["llm_model"] = llm_model_val if llm_model_val else None
+            settings["llm_default_provider"] = str(
+                self.query_one("#config_llm_default_provider_select", Select).value)
+
+            ollama_model_val = self.query_one("#config_llm_model_ollama_input", Input).value.strip()
+            settings["llm_default_model_ollama"] = ollama_model_val if ollama_model_val else None
+
+            openai_model_val = self.query_one("#config_llm_model_openai_input", Input).value.strip()
+            settings["llm_default_model_openai"] = openai_model_val if openai_model_val else None
+
+            google_model_val = self.query_one("#config_llm_model_google_input", Input).value.strip()
+            settings["llm_default_model_google"] = google_model_val if google_model_val else None
 
             llm_temp_str = self.query_one("#config_llm_temperature_input", Input).value
             try:
-                settings["llm_temperature"] = float(llm_temp_str)
+                settings["llm_default_temperature"] = float(llm_temp_str)
             except ValueError:
-                settings["llm_temperature"] = DEFAULT_SETTINGS["llm_temperature"]
+                settings["llm_default_temperature"] = DEFAULT_SETTINGS["llm_default_temperature"]
                 logger.warning(f"Invalid LLM temperature '{llm_temp_str}', using default.")
 
             llm_hist_str = self.query_one("#config_llm_max_history_input", Input).value
             try:
-                settings["llm_max_history"] = int(llm_hist_str)
+                settings["llm_default_max_history"] = int(llm_hist_str)
             except ValueError:
-                settings["llm_max_history"] = DEFAULT_SETTINGS["llm_max_history"]
+                settings["llm_default_max_history"] = DEFAULT_SETTINGS["llm_default_max_history"]
                 logger.warning(f"Invalid LLM max history '{llm_hist_str}', using default.")
 
         except NoMatches as e:
@@ -224,12 +256,9 @@ class ConfigView(Container):
             self.app.notify("Configuration saved.", title="Save Success")
 
             if hasattr(self.app, "config_manager"):
-                new_theme_name = self._config_manager.get_setting(
-                    "theme")  # Use the validated name from config
+                new_theme_name = self._config_manager.get_setting("theme")
                 if self.app.theme != new_theme_name:
                     self.app.theme = new_theme_name
-                    self.app.dark = (
-                            new_theme_name == "textual-dark")  # Example, adjust if other dark themes are primary
                     logger.info(f"Theme changed to '{new_theme_name}' and applied from config.")
         else:
             self.config_save_feedback = Text.from_markup(
@@ -259,7 +288,6 @@ class ConfigView(Container):
                     default_theme_name = self._config_manager.get_setting("theme")
                     if self.app.theme != default_theme_name:
                         self.app.theme = default_theme_name
-                        self.app.dark = (default_theme_name == "textual-dark")  # Example
                         logger.info(f"Theme reset to default '{default_theme_name}' and applied.")
             else:
                 self.config_save_feedback = Text.from_markup(

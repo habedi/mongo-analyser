@@ -44,7 +44,6 @@ CSSPathType = Union[str, Path, List[Union[str, Path]]]
 class MongoAnalyserApp(App[None]):
     TITLE = "Mongo Analyser TUI"
     CSS_PATH = "app.tcss"
-    # App.dark is inherited and will be updated by Textual when self.theme is set
 
     BINDINGS = [
         Binding("q", "quit_app_action", "Quit", show=True, priority=True),
@@ -109,14 +108,17 @@ class MongoAnalyserApp(App[None]):
             chat_view = self.query_one(ChatView)
             llm_config_panel = chat_view.query_one("#chat_llm_config_panel")
 
-            default_provider = self.config_manager.get_setting("llm_provider")
-            default_temp = self.config_manager.get_setting("llm_temperature")
-            default_hist = self.config_manager.get_setting("llm_max_history")
+            default_provider = self.config_manager.get_setting("llm_default_provider")
+            default_temp = self.config_manager.get_setting(
+                "llm_default_temperature")  # Corrected key
+            default_hist = self.config_manager.get_setting(
+                "llm_default_max_history")  # Corrected key
 
             provider_select = llm_config_panel.query_one("#llm_config_provider_select", Select)
             if provider_select.value != default_provider:
-                provider_select.value = default_provider
+                provider_select.value = default_provider  # This will trigger model loading
 
+            # Temperature and history are set after provider ensures panel is ready
             temp_input = llm_config_panel.query_one("#llm_config_temperature", Input)
             if temp_input.value != str(default_temp):
                 temp_input.value = str(default_temp)
@@ -124,6 +126,10 @@ class MongoAnalyserApp(App[None]):
             hist_input = llm_config_panel.query_one("#llm_config_max_history", Input)
             if hist_input.value != str(default_hist):
                 hist_input.value = str(default_hist)
+
+            # The default model for the provider will be handled by ChatView's
+            # _load_models_for_provider and handle_model_change_from_llm_config_panel
+            # which can check config_manager for the provider-specific default model.
 
         except NoMatches:
             logger.warning(
