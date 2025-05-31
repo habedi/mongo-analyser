@@ -45,7 +45,8 @@ Tabs Tab {
 ContentSwitcher > #view_chat_content,
 ContentSwitcher > #view_db_connection_content,
 ContentSwitcher > #view_schema_analysis_content,
-ContentSwitcher > #view_data_explorer_content {
+ContentSwitcher > #view_data_explorer_content,
+ContentSwitcher > #view_config_content { /* Added config view */
     padding: 1; /* Base padding for all views */
     overflow: auto;
     border: round $background-lighten-2; /* Subtle border for view delineation */
@@ -60,11 +61,6 @@ TextArea:focus {
 Select:focus {
     /* No special border for Select on focus, it will use its default */
 }
-/*
-Select:focus > .select--selection-list {
-    border-left: thick $accent;
-}
-*/
 
 Button:focus {
     border: round $accent;
@@ -78,6 +74,10 @@ Button.-primary:hover {
 Button.-error:hover {
     background: $error-darken-1;
 }
+Button.-warning:hover { /* Added warning button hover */
+    background: $warning-darken-1;
+}
+
 
 /* Base style for LoadingIndicator */
 LoadingIndicator {
@@ -102,7 +102,7 @@ LoadingIndicator {
     text-style: bold;
     width: 100%;
     color: $secondary-darken-1;
-    margin-bottom: 1; /* Changed 0.5 to 1 */
+    margin-bottom: 1;
 }
 
 /* ChatView Specific Styles */
@@ -113,27 +113,23 @@ LoadingIndicator {
 #view_chat_content #chat_model_loading_indicator { color: $secondary; height: 1; margin: 0 1; }
 #view_chat_content #chat_log_widget { width: 100%; height: 1fr; overflow: auto; margin-bottom: 1; border: round $primary-darken-1; background: $primary-background-darken-3; padding: 1; }
 #view_chat_content .chat_action_buttons { layout: horizontal; height: auto; width: 100%; margin-bottom: 1; align: center middle; }
-#view_chat_content .chat_action_buttons Button { width: 1fr; margin: 0 1; height: 3; min-width: 15; } /* General style for buttons in this container */
+#view_chat_content .chat_action_buttons Button { width: 1fr; margin: 0 1; height: 3; min-width: 15; }
 #view_chat_content .chat_input_container { height: auto; width: 100%; align: left bottom; margin-top: 1; layout: horizontal; }
 #view_chat_content #chat_message_input { width: 1fr; min-height: 3; margin-right: 1; }
 #view_chat_content .chat_button { width: auto; height: 100%; min-width: 8; }
 #view_chat_content #send_chat_message_button { margin-right:1; }
 #view_chat_content #llm_config_new_session_button { margin: 1; width: 100%; }
-/* Add this to mongo_analyser/app.tcss, for example, within #view_chat_content styles */
 #view_chat_content .context_indicator {
     width: 100%;
-    padding: 0 1;      /* Horizontal padding */
-    margin-bottom: 1;  /* Space below the indicator */
-    color: $text-muted; /* A subtle color, adjust as needed */
-    height: auto;       /* Let content define height, or set to 1 if it's always a single line */
-    text-style: italic; /* Optional: makes it visually distinct */
+    padding: 0 1;
+    margin-bottom: 1;
+    color: $text-muted;
+    height: auto;
+    text-style: italic;
 }
-
-/* Styling for the new context buttons in ChatView */
 #view_chat_content .chat_action_buttons Button.context_button {
-    width: 1fr; /* Distribute space equally among context buttons */
-    margin: 1;  /* Apply a margin of 1 around each context button */
-    /* height: 3; min-width: 15; will be inherited from the general rule above if not overridden */
+    width: 1fr;
+    margin: 1;
 }
 
 /* DB Connection View */
@@ -173,34 +169,33 @@ LoadingIndicator {
 
 
 /* Styles for Custom Widgets */
-
-/* ChatMessageWidget - Old Styling block (will be mostly overridden by the new one below for ChatMessageWidget itself) */
-/*
 ChatMessageWidget {
     width: 100%;
+    margin-bottom: 1;
     height: auto;
-    padding: 1 2;
-    margin-bottom: 1;
-    border: round $primary-background-darken-3;
-    background: $surface;
+    background: transparent;
+    border: none;
 }
-*/
-/* Styles from the old block that might still be relevant if not overridden by new specific class styles */
-ChatMessageWidget > Static:first-child { /* Role Label - general styling if not using .message-role */
+ChatMessageWidget > Static.message-role {
     width: 100%;
-    padding: 0 0 1 0;
-    margin-bottom: 1;
-    text-style: bold;
+    height: 1;
+    padding: 0 1;
 }
-/* Colors from old block for roles - these will be overridden by the new .role_user, .role_assistant with hex colors */
-/*
-ChatMessageWidget .role_user { color: $success; }
-ChatMessageWidget .role_assistant { color: $secondary; }
-*/
-ChatMessageWidget .role_system { color: $warning; text-style: bold italic; } /* This one for system messages is still unique */
-
-ChatMessageWidget > Markdown { /* General Markdown styling if not using .message-content-box */
-    background: transparent; /* This makes sense if the new .message-content-box provides the actual background */
+ChatMessageWidget .role_user {
+    text-align: left;
+    color: #80BFFF;
+}
+ChatMessageWidget .role_assistant {
+    text-align: right;
+    color: #90EE90;
+}
+ChatMessageWidget .role_system { color: $warning; text-style: bold italic; }
+ChatMessageWidget > Markdown.message-content-box {
+    background: #2E3440;
+    border: round #88C0D0;
+    padding: 1 2;
+    width: 100%;
+    min-height: 3;
     margin-top: 0;
 }
 
@@ -215,7 +210,7 @@ ChatMessageList { width: 100%; }
 LLMConfigPanel { border: round $primary-darken-1; background: $primary-background-darken-3; padding: 0 1; overflow-y: auto; }
 LLMConfigPanel > Label { margin-top: 1; }
 LLMConfigPanel > Input, LLMConfigPanel > Select { width: 100%; }
-LLMConfigPanel > Button { width: 100%; margin-top: 1; } /* Affects #llm_config_new_session_button */
+LLMConfigPanel > Button { width: 100%; margin-top: 1; }
 
 /* ChatInput (Container for the chat message Input widget) */
 ChatInput { layout: horizontal; height: auto; width: 100%; }
@@ -229,7 +224,7 @@ ConfirmDialog Button { margin-left: 1; }
 
 ErrorDialog { align: center middle; }
 ErrorDialog > Vertical { background: $panel-darken-2; color: $text; width: auto; min-width: 40; max-width: 80%; height: auto; padding: 1 2; border: thick $error; }
-ErrorDialog Static { margin-bottom: 1; text-align: center; }
+ErrorDialog Static { margin-bottom: 1; text-align: center; } /* Might be unused if Label is preferred */
 ErrorDialog Label { margin-top:1; margin-bottom: 1; }
 ErrorDialog Center { margin-top: 1; height: auto; }
 
@@ -242,7 +237,7 @@ ErrorDialog Center { margin-top: 1; height: auto; }
 }
 #view_data_explorer_content > Select { width: 100%; }
 #view_data_explorer_content > Input { width: 100%; }
-#view_data_explorer_content > Button { width: 100%; } /* General button styling in this view */
+#view_data_explorer_content > Button { width: 100%; }
 #view_data_explorer_content #data_fetch_loading_indicator { margin-bottom: 0; margin-top: 1; }
 #view_data_explorer_content #document_display_area { height: 20; border: round $primary-darken-1; background: $primary-background-darken-3; padding: 1; overflow: auto; }
 #view_data_explorer_content #document_navigation { layout: horizontal; height: auto; align: center middle; }
@@ -253,68 +248,33 @@ ErrorDialog Center { margin-top: 1; height: auto; }
 #view_data_explorer_content .action_button_group { layout: horizontal; height: auto; width: 100%; align: center middle; }
 #view_data_explorer_content .action_button_group Button { width: 1fr; margin: 0 1; }
 #view_data_explorer_content .action_button_group Button:last-child { margin-right: 0; }
-#view_data_explorer_content #save_sample_docs_button { width: 100%; margin: 1; } /* Specific margin override */
-#view_data_explorer_content #fetch_documents_button { width: 100%; margin: 1; } /* Specific margin override */
+#view_data_explorer_content #save_sample_docs_button { width: 100%; margin: 1; }
+#view_data_explorer_content #fetch_documents_button { width: 100%; margin: 1; }
 
-/* ChatMessageWidget - Styling for the image's look (NEW STYLES APPLIED HERE) */
-/* This block defines the new look and overrides previous ChatMessageWidget general styles */
-ChatMessageWidget {
-    width: 100%;
-    margin-bottom: 1;   /* Adds space between consecutive messages */
-    height: auto;       /* Let the content define the height */
-    background: transparent; /* Ensure outer widget has no background, so content box stands out */
-    border: none;           /* Ensure outer widget has no border */
+/* Config View Styles */
+#view_config_content #config_view_scroll_panel {
+    padding: 1;
+    /* spacing: 1; */ /* This was the invalid property */
 }
-
-/* Styling for the role label (e.g., "USER", "ASSISTANT") */
-/* Assumes the Static widget for role has class 'message-role' AND 'role_user'/'role_assistant' */
-ChatMessageWidget > Static.message-role {
-    width: 100%;        /* Take full width to allow text-align to work effectively */
-    height: 1;          /* Give the role label a line of its own */
-    padding: 0 1;       /* Horizontal padding for the role text */
-    /* margin-bottom: 0; /* If no space is desired between role and content box */
-    /* text-style: bold; /* Re-apply bold if needed, or let it be inherited/default */
-}
-
-/* Specific alignment and color for "USER" role */
-/* This will override any color from the older '.role_user' definition */
-ChatMessageWidget .role_user {
-    text-align: left;
-    color: #80BFFF;    /* Example user color (light blue) */
-    /* If bold is needed: text-style: bold; */
-}
-
-/* Specific alignment and color for "ASSISTANT" role */
-/* This will override any color from the older '.role_assistant' definition */
-ChatMessageWidget .role_assistant {
-    text-align: right;
-    color: #90EE90;    /* Example assistant color (light green) */
-    /* If bold is needed: text-style: bold; */
-}
-
-/* Styling for the main content box */
-/* Assumes the Markdown widget has class 'message-content-box' */
-ChatMessageWidget > Markdown.message-content-box {
-    background: #2E3440;      /* Dark background for the content box (e.g., Nord Night color) */
-    border: round #88C0D0;    /* Cyan-like border (e.g., Nord Frost color) */
-    padding: 1 2;             /* Inner padding: 1 line top/bottom, 2 columns left/right */
-    width: 100%;              /* Content box should take the full width of its parent */
-    min-height: 3;            /* Minimum height for the box */
-    /* color: $text; */       /* Text color inside the box, if different from app default $text */
-    margin-top: 0;            /* Ensure no unexpected top margin from Markdown itself */
-}
-
-/*
-   The loading indicator (● ● ●) styling would depend on how it's implemented.
-   If it's plain text within the Markdown.message-content-box, its alignment is
-   subject to Markdown rendering. If it's a separate Textual LoadingIndicator widget
-   that replaces or is placed inside the content box during loading, then that
-   widget would be styled directly.
-*/
-/* Example if it were a direct LoadingIndicator widget:
-LoadingIndicator.chat-loading {
-    color: #88C0D0;
+#view_config_content Label.config_label {
     margin-top: 1;
-    align: center middle;
+    margin-bottom: 0; /* Reduce bottom margin if Select/Input has top margin */
+    text-style: bold;
 }
-*/
+#view_config_content Select,
+#view_config_content Input {
+    width: 100%;
+    margin-bottom: 1; /* Space after each input/select */
+}
+#view_config_content Button {
+    width: 100%;
+    margin-top: 1; /* Space above buttons */
+}
+#view_config_content #config_save_feedback_label {
+    width: 100%;
+    text-align: center;
+    height: 1;
+    margin-top: 1;
+    /* Colors will be set dynamically (green for success, red for error) */
+}
+
