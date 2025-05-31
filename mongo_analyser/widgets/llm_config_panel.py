@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 class LLMConfigPanel(VerticalScroll):
+    DEFAULT_TEMPERATURE = 0.7
+    DEFAULT_MAX_HISTORY = 20
+
     class ProviderChanged(Message):
         def __init__(self, provider: Optional[str]):
             self.provider = provider
@@ -27,8 +30,8 @@ class LLMConfigPanel(VerticalScroll):
 
     provider: reactive[Optional[str]] = reactive(None)
     model: reactive[Optional[str]] = reactive(None)
-    temperature: reactive[Optional[float]] = reactive(0.7)
-    max_history_messages: reactive[Optional[int]] = reactive(20)
+    temperature: reactive[Optional[float]] = reactive(DEFAULT_TEMPERATURE)
+    max_history_messages: reactive[Optional[int]] = reactive(DEFAULT_MAX_HISTORY)
 
     def compose(self) -> ComposeResult:
         yield Label("Session Config", classes="panel_title")
@@ -49,22 +52,24 @@ class LLMConfigPanel(VerticalScroll):
             value=Select.BLANK,
         )
 
-        yield Label("Temperature (default: 0.7):")
+        yield Label(f"Temperature (default: {self.DEFAULT_TEMPERATURE}):")
         yield Input(
-            placeholder="0.7",
+            placeholder=str(self.DEFAULT_TEMPERATURE),
             id="llm_config_temperature",
-            value="0.7",
+            value=str(self.DEFAULT_TEMPERATURE),
             tooltip="Controls randomness (0.0-1.0). Higher values (e.g., 0.9) for more creative and"
-            " diverse responses, lower (e.g., 0.2) for more deterministic/focused ones. Default: 0.7",
+                    " diverse responses, lower (e.g., 0.2) for more deterministic/focused ones."
+                    f" Default: {self.DEFAULT_TEMPERATURE}",
         )
 
-        yield Label("Max History (0=all, -1=none):")
+        yield Label(f"Max History (0=all, -1=none, default: {self.DEFAULT_MAX_HISTORY}):")
         yield Input(
-            placeholder="20",
+            placeholder=str(self.DEFAULT_MAX_HISTORY),
             id="llm_config_max_history",
-            value="20",
+            value=str(self.DEFAULT_MAX_HISTORY),
             tooltip="Number of recent conversation turns (user+AI message pairs) to include as context."
-            " '0' includes all available history. '-1' includes no history (current message only).",
+                    " '0' includes all available history. '-1' includes no history (current message only)."
+                    f" Default: {self.DEFAULT_MAX_HISTORY}",
         )
 
         yield Button("New Chat Session", id="llm_config_new_session_button", variant="primary")
@@ -112,20 +117,20 @@ class LLMConfigPanel(VerticalScroll):
             temp_input = self.query_one("#llm_config_temperature", Input)
             self.temperature = float(temp_input.value)
         except ValueError:
-            self.temperature = 0.7
+            self.temperature = self.DEFAULT_TEMPERATURE
         except NoMatches:
             logger.error("LLMConfigPanel: Temperature input not found.")
-            self.temperature = 0.7
+            self.temperature = self.DEFAULT_TEMPERATURE
 
     def _update_max_history(self) -> None:
         try:
             history_input = self.query_one("#llm_config_max_history", Input)
             self.max_history_messages = int(history_input.value)
         except ValueError:
-            self.max_history_messages = 20
+            self.max_history_messages = self.DEFAULT_MAX_HISTORY
         except NoMatches:
             logger.error("LLMConfigPanel: Max history input not found.")
-            self.max_history_messages = 20
+            self.max_history_messages = self.DEFAULT_MAX_HISTORY
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "llm_config_new_session_button":

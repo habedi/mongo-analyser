@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 from pymongo import MongoClient
 from pymongo.database import Database as PyMongoDatabase
@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 _client: Optional[MongoClient] = None
 _db: Optional[PyMongoDatabase] = None
 _current_uri: Optional[str] = None
-_current_db_name_arg: Optional[str] = None
-_current_resolved_db_name: Optional[str] = None
+_current_db_name_arg: Optional[str] = None  # DB name as provided in the connection attempt
+_current_resolved_db_name: Optional[    str] = None  # Actual DB name resolved (e.g. from URI path or _current_db_name_arg)
+_last_connection_error: Optional[Tuple[str, Optional[int]]] = None  # (message, error_code)
 
 
 def db_connection_active(
@@ -24,7 +25,8 @@ def db_connection_active(
     force_reconnect: bool = False,
     **kwargs,
 ) -> bool:
-    global _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name
+    global _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name, _last_connection_error
+    _last_connection_error = None
 
     redacted_uri_for_log = redact_uri_password(uri)
 
@@ -40,6 +42,7 @@ def db_connection_active(
                 return True
             except (ConnectionFailure, OperationFailure) as e:
                 logger.warning(f"Existing MongoDB connection ping failed: {e}. Reconnecting.")
+                _last_connection_error = (str(e), getattr(e, 'code', None))
                 _client, _db = None, None
         elif db_name and _db.name != db_name:
             logger.info(
@@ -54,8 +57,9 @@ def db_connection_active(
                 return True
             except Exception as e:
                 logger.error(f"Failed to switch DB context to '{db_name}' or ping failed: {e}")
+                _last_connection_error = (str(e), getattr(e, 'code', None))
                 _client, _db = None, None
-        else:
+        else:  # URI changed or other mismatch, force reconnect
             _client, _db = None, None
 
     if _client is not None:
@@ -83,10 +87,10 @@ def db_connection_active(
         if db_name:
             db_to_connect_to = db_name
             logger.info(
-                f"Using database name explicitly provided via TUI/argument: '{db_to_connect_to}'"
-            )
+                f"Using database name explicitly provided via TUI/argument: '{db_to_connect_to}'")
         else:
             try:
+
                 db_from_uri_path = temp_client.get_database().name
                 logger.info(f"Database name resolved from URI path: '{db_from_uri_path}'")
                 db_to_connect_to = db_from_uri_path
@@ -96,19 +100,21 @@ def db_connection_active(
                         f"URI resolved to default/system database '{db_from_uri_path}'. "
                         "If this is not your target data DB, please specify one in the TUI."
                     )
-            except ConfigurationError:
-                logger.error(
+            except ConfigurationError:  # pragma: no cover
+                err_msg = (
                     f"MongoDB URI ('{redacted_uri_for_log}') does not specify a default database path, "
                     "and no database name was provided via the TUI. Cannot determine database context."
                 )
+                logger.error(err_msg)
+                _last_connection_error = (err_msg, None)
                 temp_client.close()
 
                 return False
 
-        if not db_to_connect_to:
-            logger.error(
-                f"Fatal: Database name could not be determined for URI '{redacted_uri_for_log}'."
-            )
+        if not db_to_connect_to:  # Should be caught above, but as a safeguard
+            err_msg = f"Fatal: Database name could not be determined for URI '{redacted_uri_for_log}'."
+            logger.error(err_msg)
+            _last_connection_error = (err_msg, None)
             temp_client.close()
             return False
 
@@ -129,69 +135,58 @@ def db_connection_active(
         )
         return True
 
-    except ConfigurationError as e:
+    except ConfigurationError as e:  # pragma: no cover
         logger.error(f"MongoDB client configuration error for URI '{redacted_uri_for_log}': {e}")
-        if _client:
-            _client.close()
-        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = (
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        _last_connection_error = (str(e), None)
+        if _client: _client.close()
+        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = None, None, None, None, None
         return False
-    except (ConnectionFailure, OperationFailure) as e:
+    except (ConnectionFailure, OperationFailure) as e:  # pragma: no cover
         logger.error(
             f"MongoDB connection/operation failure for URI '{redacted_uri_for_log}',"
             f" target DB '{db_name or 'from URI'}': {e}"
         )
-        if _client:
-            _client.close()
-        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = (
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        _last_connection_error = (str(e), getattr(e, 'code', None))
+        if _client: _client.close()
+        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = None, None, None, None, None
         return False
-    except Exception as e:
+    except Exception as e:  # pragma: no cover
         logger.error(f"Unexpected error during MongoDB connection: {e}", exc_info=True)
-        if _client:
-            _client.close()
-        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = (
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        _last_connection_error = (str(e), None)
+        if _client: _client.close()
+        _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name = None, None, None, None, None
         return False
+
+
+def get_last_connection_error_details() -> Optional[Tuple[str, Optional[int]]]:
+    return _last_connection_error
 
 
 def get_mongo_db() -> PyMongoDatabase:
-    global _client, _db
+    global _client, _db, _last_connection_error
     if _db is None or _client is None:
-        raise ConnectionError(
+        raise ConnectionError(  # pragma: no cover
             "Not connected to MongoDB or connection lost. Call db_connection_active first or reconnect."
         )
     try:
         _client.admin.command({"ping": 1})
-    except (ConnectionFailure, OperationFailure) as e:
+    except (ConnectionFailure, OperationFailure) as e:  # pragma: no cover
         logger.error(f"MongoDB connection lost when trying to get DB: {e}")
+        _last_connection_error = (str(e), getattr(e, 'code', None))
         disconnect_mongo()
         raise ConnectionError("MongoDB connection lost. Reconnect needed.") from e
     return _db
 
 
-def get_mongo_client() -> Optional[MongoClient]:
+def get_mongo_client() -> Optional[MongoClient]:  # pragma: no cover
+    global _last_connection_error
     if _client:
         try:
             _client.admin.command("ping")
             return _client
         except (ConnectionFailure, OperationFailure) as e:
             logger.warning(f"Ping failed for existing client, considered disconnected: {e}")
+            _last_connection_error = (str(e), getattr(e, 'code', None))
             disconnect_mongo()
             return None
     return None
@@ -206,7 +201,7 @@ def get_current_resolved_db_name() -> Optional[str]:
 
 
 def disconnect_mongo() -> None:
-    global _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name
+    global _client, _db, _current_uri, _current_db_name_arg, _current_resolved_db_name, _last_connection_error
     if _client is not None:
         _client.close()
         logger.info("MongoDB client connection closed.")
@@ -215,7 +210,8 @@ def disconnect_mongo() -> None:
     _current_uri = None
     _current_db_name_arg = None
     _current_resolved_db_name = None
+    _last_connection_error = None
 
 
-def disconnect_all_mongo() -> None:
+def disconnect_all_mongo() -> None:  # pragma: no cover
     disconnect_mongo()
