@@ -11,8 +11,19 @@ DEFAULT_CONFIG_FILE_NAME = "config.json"
 
 # Use valid Textual theme names
 DEFAULT_THEME_NAME = "textual-dark"
-VALID_THEMES = ["textual-dark",
-                "solarized-light"]  # Add more valid registered theme names if desired
+VALID_THEMES = [
+    "textual-dark",
+    "textual-light",
+    "nord",
+    "gruvbox",
+    "catppuccin-mocha",
+    "dracula",
+    "tokyo-night",
+    "monokai",
+    "flexoki",
+    "catppuccin-latte",
+    "solarized-light",
+]
 
 DEFAULT_SETTINGS = {
     "theme": DEFAULT_THEME_NAME,
