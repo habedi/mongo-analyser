@@ -4,14 +4,21 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Type, Union
 
+from mongo_analyser.core import db as core_db_manager
+from mongo_analyser.core.config_manager import DEFAULT_THEME_NAME, VALID_THEMES, ConfigManager
+from mongo_analyser.views import (
+    ChatView,
+    ConfigView,
+    DataExplorerView,
+    DBConnectionView,
+    SchemaAnalysisView,
+)
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.driver import Driver
-from textual.events import Paste
 from textual.reactive import reactive
-from textual.widget import Widget
 from textual.widgets import (
     ContentSwitcher,
     DataTable,
@@ -24,16 +31,6 @@ from textual.widgets import (
     Tab,
     Tabs,
     TextArea,
-)
-
-from mongo_analyser.core import db as core_db_manager
-from mongo_analyser.core.config_manager import ConfigManager, VALID_THEMES, DEFAULT_THEME_NAME
-from mongo_analyser.views import (
-    ChatView,
-    ConfigView,
-    DataExplorerView,
-    DBConnectionView,
-    SchemaAnalysisView,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,16 +106,13 @@ class MongoAnalyserApp(App[None]):
             llm_config_panel = chat_view.query_one("#chat_llm_config_panel")
 
             default_provider = self.config_manager.get_setting("llm_default_provider")
-            default_temp = self.config_manager.get_setting(
-                "llm_default_temperature")  # Corrected key
-            default_hist = self.config_manager.get_setting(
-                "llm_default_max_history")  # Corrected key
+            default_temp = self.config_manager.get_setting("llm_default_temperature")
+            default_hist = self.config_manager.get_setting("llm_default_max_history")
 
             provider_select = llm_config_panel.query_one("#llm_config_provider_select", Select)
             if provider_select.value != default_provider:
-                provider_select.value = default_provider  # This will trigger model loading
+                provider_select.value = default_provider
 
-            # Temperature and history are set after provider ensures panel is ready
             temp_input = llm_config_panel.query_one("#llm_config_temperature", Input)
             if temp_input.value != str(default_temp):
                 temp_input.value = str(default_temp)
@@ -127,13 +121,10 @@ class MongoAnalyserApp(App[None]):
             if hist_input.value != str(default_hist):
                 hist_input.value = str(default_hist)
 
-            # The default model for the provider will be handled by ChatView's
-            # _load_models_for_provider and handle_model_change_from_llm_config_panel
-            # which can check config_manager for the provider-specific default model.
-
         except NoMatches:
             logger.warning(
-                "Could not find ChatView or LLMConfigPanel elements on mount for defaults.")
+                "Could not find ChatView or LLMConfigPanel elements on mount for defaults."
+            )
         except Exception as e:
             logger.error(f"Error applying LLM defaults from config on mount: {e}", exc_info=True)
 
@@ -291,17 +282,16 @@ class MongoAnalyserApp(App[None]):
                     "Pasting... (relies on terminal/widget support)",
                     title="Paste Action",
                     severity="information",
-                    timeout=2
+                    timeout=2,
                 )
             except Exception as e:
                 logger.error(f"Error attempting to handle paste action: {e}", exc_info=True)
-                self.notify("Paste action encountered an issue.", title="Paste Error",
-                            severity="error")
+                self.notify(
+                    "Paste action encountered an issue.", title="Paste Error", severity="error"
+                )
         else:
             self.notify(
-                "Cannot paste here. Focus an input field.",
-                title="Paste Info",
-                severity="warning"
+                "Cannot paste here. Focus an input field.", title="Paste Info", severity="warning"
             )
 
     def action_toggle_theme(self) -> None:
@@ -317,12 +307,13 @@ class MongoAnalyserApp(App[None]):
             new_theme_name = VALID_THEMES[next_index]
         except ValueError:
             logger.warning(
-                f"Current theme '{current_theme_name}' not in VALID_THEMES. Defaulting to first in list.")
+                f"Current theme '{current_theme_name}' not in VALID_THEMES. Defaulting to first in list."
+            )
             new_theme_name = VALID_THEMES[0] if VALID_THEMES else DEFAULT_THEME_NAME
 
         self.theme = new_theme_name
 
-        if hasattr(self, 'config_manager') and self.config_manager:
+        if hasattr(self, "config_manager") and self.config_manager:
             self.config_manager.update_setting("theme", new_theme_name)
             logger.info(f"Theme toggled to: {new_theme_name} and updated in config manager.")
         else:
@@ -346,7 +337,8 @@ def main_interactive_tui(
     effective_log_level_str = log_level_override or os.environ.get("LOG_LEVEL", "INFO").upper()
 
     temp_formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s")
+        "%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s"
+    )
     temp_handler = logging.StreamHandler(sys.stderr)
     temp_handler.setFormatter(temp_formatter)
 
@@ -374,12 +366,19 @@ def main_interactive_tui(
         if logging.getLogger().getEffectiveLevel() > app_logger.getEffectiveLevel():
             logging.getLogger().setLevel(app_logger.getEffectiveLevel())
 
-        if temp_handler not in app_logger.handlers and temp_handler not in logging.getLogger().handlers:
+        if (
+            temp_handler not in app_logger.handlers
+            and temp_handler not in logging.getLogger().handlers
+        ):
             app_logger.addHandler(temp_handler)
 
     if configured_log_level != "OFF":
-        log_dir = Path(os.getenv("MONGO_ANALYSER_LOG_DIR",
-                                 Path.home() / ".local" / "share" / "mongo_analyser" / "logs"))
+        log_dir = Path(
+            os.getenv(
+                "MONGO_ANALYSER_LOG_DIR",
+                Path.home() / ".local" / "share" / "mongo_analyser" / "logs",
+            )
+        )
         log_file = log_dir / "mongo_analyser_tui.log"
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
@@ -419,14 +418,18 @@ def main_interactive_tui(
         else:
             if app_logger.isEnabledFor(logging.DEBUG):
                 app_logger.debug(
-                    "File logging handler for %s already exists on %s.",
-                    log_file, app_logger.name
+                    "File logging handler for %s already exists on %s.", log_file, app_logger.name
                 )
 
         if app_logger.getEffectiveLevel() > logging.DEBUG:
             for lib_logger_name in [
-                "httpx", "httpcore", "openai", "google.generativeai",
-                "pymongo.command", "urllib3.connectionpool", "textual"
+                "httpx",
+                "httpcore",
+                "openai",
+                "google.generativeai",
+                "pymongo.command",
+                "urllib3.connectionpool",
+                "textual",
             ]:
                 lib_logger = logging.getLogger(lib_logger_name)
                 if lib_logger.getEffectiveLevel() < logging.WARNING:
@@ -434,7 +437,8 @@ def main_interactive_tui(
 
     if temp_handler in logging.getLogger().handlers:
         is_file_handler_present = any(
-            isinstance(h, logging.FileHandler) for h in app_logger.handlers)
+            isinstance(h, logging.FileHandler) for h in app_logger.handlers
+        )
         if is_file_handler_present or configured_log_level == "OFF":
             logging.getLogger().removeHandler(temp_handler)
 
@@ -480,4 +484,3 @@ if __name__ == "__main__":
         initial_mongo_uri=os.getenv("MONGO_URI"),
         initial_db_name=os.getenv("MONGO_DATABASE"),
     )
-

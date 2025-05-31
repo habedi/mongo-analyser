@@ -129,7 +129,6 @@ class OllamaChat(LLMChat):
                     if content_chunk:
                         yield content_chunk
                 else:
-                    # Optionally handle final chunk data if needed, e.g., response.get('total_duration')
                     break
         except ollama.ResponseError as e:
             logger.error(
@@ -160,7 +159,8 @@ class OllamaChat(LLMChat):
 
         try:
             logger.debug(
-                f"Attempting to list Ollama models with client args: {client_args_for_listing}")
+                f"Attempting to list Ollama models with client args: {client_args_for_listing}"
+            )
             temp_client = ollama.Client(**client_args_for_listing)
             models_data = temp_client.list()
 
@@ -189,7 +189,6 @@ class OllamaChat(LLMChat):
         except Exception as e:
             logger.error(
                 f"Error fetching Ollama models with client_args {client_args_for_listing}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             return []
-
