@@ -186,7 +186,7 @@ class SchemaAnalyser:
             schema[full_key] = {"type": value_type_name}
             try:
                 stats_dict_to_update["values"].add(SchemaAnalyser._make_hashable(value))
-            except Exception:
+            except:
                 stats_dict_to_update["values"].add(f"unhashable_value_type_{type(value).__name__}")
 
         stats_dict_to_update["type_counts"].update([value_type_name])
@@ -258,7 +258,7 @@ class SchemaAnalyser:
             for doc in docs:
                 total_docs += 1
                 schema, stats = SchemaAnalyser.extract_schema_and_stats(doc, schema, stats)
-                if sample_size > 0 and total_docs >= sample_size:
+                if 0 < sample_size <= total_docs:
                     break
         except PyMongoOperationFailure as e:
             logger.error(

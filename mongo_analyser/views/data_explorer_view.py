@@ -4,7 +4,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from mongo_analyser.core.extractor import get_newest_documents
+from mongo_analyser.core import DataExtractor
 from mongo_analyser.dialogs import ErrorDialog
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
@@ -261,7 +261,8 @@ class DataExplorerView(Container):
 
         try:
             worker: Worker[List[Dict[str, Any]]] = self.app.run_worker(
-                partial(get_newest_documents, uri, db_name, collection_name, sample_size),
+                partial(DataExtractor.get_newest_documents,
+                        uri, db_name, collection_name, sample_size),
                 thread=True,
                 group="doc_fetch",
             )

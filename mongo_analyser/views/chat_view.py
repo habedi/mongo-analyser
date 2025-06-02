@@ -4,8 +4,8 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 import mongo_analyser.core.db as core_db_manager
-from mongo_analyser.core.analyser import SchemaAnalyser
-from mongo_analyser.core.extractor import get_newest_documents
+from mongo_analyser.core import SchemaAnalyser
+from mongo_analyser.core import DataExtractor
 from mongo_analyser.dialogs import ErrorDialog
 from mongo_analyser.llm_chat import (
     GoogleChat,
@@ -811,7 +811,7 @@ class ChatView(Container):
                 raise ConnectionError("DB connection lost for sample doc fetching.")
 
             fetch_task = functools.partial(
-                get_newest_documents,
+                DataExtractor.get_newest_documents,
                 self.app.current_mongo_uri,
                 self.app.current_db_name,
                 coll,

@@ -1,8 +1,6 @@
 import logging
 
 from importlib.metadata import PackageNotFoundError, version
-from mongo_analyser.core.analyser import SchemaAnalyser
-from mongo_analyser.core.extractor import DataExtractor
 
 _logger = logging.getLogger(__name__)
 
@@ -14,8 +12,3 @@ except PackageNotFoundError:
         "Could not determine package version using importlib.metadata."
         " Is the library installed correctly?"
     )
-
-__all__ = [
-    "DataExtractor",
-    "SchemaAnalyser",
-]

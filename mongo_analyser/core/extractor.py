@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Optional, Union
 
 import pytz
 from bson import Binary, Decimal128, Int64, ObjectId
+# Use integer literals for subtypes instead of potentially missing named constants
+from bson.binary import UuidRepresentation  # Keep this for UuidRepresentation enum
+# from bson.binary import UUID_SUBTYPE, UUID_LEGACY_SUBTYPE # Remove this problematic import
 from pymongo import DESCENDING
 from pymongo.errors import (
     ConnectionFailure as PyMongoConnectionFailure,
@@ -25,6 +28,10 @@ from . import db as db_manager
 from . import shared
 
 logger = logging.getLogger(__name__)
+
+# Define constants for subtypes if you prefer not to use magic numbers directly
+_BSON_UUID_SUBTYPE_STANDARD = 4
+_BSON_UUID_SUBTYPE_LEGACY_PYTHON = 3
 
 
 class DataExtractor:
@@ -47,12 +54,34 @@ class DataExtractor:
         elif isinstance(value, uuid.UUID):
             return "UUID"
         elif isinstance(value, Binary):
+            if value.subtype == _BSON_UUID_SUBTYPE_LEGACY_PYTHON:  # Use defined constant or literal 3
+                return "binary<UUID (legacy)>"
+            if value.subtype == _BSON_UUID_SUBTYPE_STANDARD:  # Use defined constant or literal 4
+                return "binary<UUID>"
             return shared.binary_type_map.get(value.subtype, f"binary<subtype {value.subtype}>")
         elif isinstance(value, list):
             if not value:
                 return "array<empty>"
-            first_elem_type = DataExtractor._infer_type_val(value[0])
-            return f"array<{first_elem_type}>"
+
+            element_types = set()
+            has_actual_value = False
+            for item in value:
+                inferred_item_type = DataExtractor._infer_type_val(item)
+                element_types.add(inferred_item_type)
+                if inferred_item_type != "null":
+                    has_actual_value = True
+
+            if not has_actual_value:
+                return "array<null>"
+
+            distinct_types_no_null = {t for t in element_types if t != "null"}
+
+            if len(distinct_types_no_null) == 1:
+                return f"array<{list(distinct_types_no_null)[0]}>"
+            elif not distinct_types_no_null and "null" in element_types:
+                return "array<null>"
+            else:
+                return "array<mixed>"
         elif isinstance(value, dict):
             return "dict"
         elif isinstance(value, Decimal128):
@@ -83,9 +112,9 @@ class DataExtractor:
                 return [
                     DataExtractor.convert_to_json_compatible(
                         item, items_schema_for_array_elements, tz
-                    )
+                    ) if isinstance(item, dict) else DataExtractor._convert_single_value(item, None,
+                                                                                         tz)
                     for item in val
-                    if isinstance(item, dict)
                 ]
             else:
                 item_type_str_for_elements = None
@@ -94,27 +123,61 @@ class DataExtractor:
                     and type_to_check.startswith("array<")
                     and type_to_check.endswith(">")
                 ):
-                    item_type_str_for_elements = type_to_check[len("array<") : -1]
+                    item_type_str_for_elements = type_to_check[len("array<"): -1]
 
                 return [
                     DataExtractor._convert_single_value(item, item_type_str_for_elements, tz)
                     for item in val
                 ]
 
-        if type_to_check == "binary<UUID>" or type_to_check == "UUID" or isinstance(val, uuid.UUID):
+        if isinstance(val, uuid.UUID):
             return str(val)
-        if (
-            type_to_check == "binary<ObjectId>"
-            or type_to_check == "ObjectId"
-            or isinstance(val, ObjectId)
-        ):
+
+        if isinstance(val, Binary) and val.subtype in (_BSON_UUID_SUBTYPE_STANDARD,
+                                                       _BSON_UUID_SUBTYPE_LEGACY_PYTHON):
+            try:
+                py_uuid = None
+                if val.subtype == _BSON_UUID_SUBTYPE_STANDARD:
+                    py_uuid = val.as_uuid(UuidRepresentation.STANDARD)
+                elif val.subtype == _BSON_UUID_SUBTYPE_LEGACY_PYTHON:
+                    try:
+                        py_uuid = val.as_uuid(UuidRepresentation.PYTHON_LEGACY)
+                    except ValueError:
+                        py_uuid = val.as_uuid()
+
+                if py_uuid:
+                    return str(py_uuid)
+                else:
+                    logger.warning(
+                        f"Binary UUID subtype {val.subtype} could not be converted to Python UUID, falling to hex.")
+                    return val.hex()
+            except Exception as e:
+                logger.warning(
+                    f"Could not convert Binary UUID subtype {val.subtype} (Exception: {e}), falling back to hex.")
+                return val.hex()
+
+        if type_to_check == "binary<UUID>" or type_to_check == "binary<UUID (legacy)>":
+            if isinstance(val, str) and len(val) == 36:
+                try:
+                    uuid.UUID(val)
+                    return val
+                except ValueError:
+                    pass
+            if isinstance(val, Binary): return val.hex()
             return str(val)
+
+        if type_to_check == "binary<ObjectId>" or type_to_check == "ObjectId" or isinstance(val,
+                                                                                            ObjectId):
+            return str(val)
+
         if type_to_check == "datetime" or isinstance(val, datetime):
+            dt_to_convert = val
+            if val.tzinfo is None or val.tzinfo.utcoffset(val) is None:
+                dt_to_convert = pytz.utc.localize(val)
+
             if tz:
-                if val.tzinfo is None:
-                    return val.isoformat()
-                return val.astimezone(tz).isoformat()
-            return val.isoformat()
+                return dt_to_convert.astimezone(tz).isoformat()
+            return dt_to_convert.isoformat()
 
         if type_to_check == "str":
             return str(val)
@@ -127,11 +190,7 @@ class DataExtractor:
         if type_to_check == "decimal128" or isinstance(val, Decimal128):
             return str(val.to_decimal())
 
-        if (
-            type_to_check
-            and "binary<" in type_to_check
-            and type_to_check not in ("binary<ObjectId>", "binary<UUID>")
-        ) or isinstance(val, Binary):
+        if isinstance(val, Binary):
             return val.hex()
 
         if isinstance(val, (str, int, float, bool, dict)):
@@ -159,10 +218,12 @@ class DataExtractor:
             if isinstance(field_schema_definition, dict):
                 type_str_from_schema = field_schema_definition.get("type")
 
-                if type_str_from_schema == "array<dict>" and isinstance(
+                if type_str_from_schema and type_str_from_schema.startswith(
+                    "array<") and isinstance(
                     field_schema_definition.get("items"), dict
                 ):
-                    items_sub_schema = field_schema_definition.get("items")
+                    if type_str_from_schema == "array<dict>":
+                        items_sub_schema = field_schema_definition.get("items")
 
                 elif not type_str_from_schema and isinstance(value, dict):
                     processed_document[key] = DataExtractor.convert_to_json_compatible(
@@ -290,86 +351,101 @@ class DataExtractor:
                 data_cursor.close()
                 logger.debug("MongoDB cursor closed for data extraction.")
 
-
-def get_newest_documents(
-    mongo_uri: str,
-    db_name: str,
-    collection_name: str,
-    sample_size: int,
-    fields: Optional[List[str]] = None,
-    server_timeout_ms: int = 5000,
-) -> List[Dict]:
-    if not db_manager.db_connection_active(
-        uri=mongo_uri, db_name=db_name, server_timeout_ms=server_timeout_ms
-    ):
-        raise PyMongoConnectionFailure(
-            f"MongoDB connection failed for sampling ({db_name}.{collection_name})"
-        )
-
-    database = db_manager.get_mongo_db()
-    collection = database[collection_name]
-    query_cursor = None
-
-    try:
-        if sample_size <= 0:
-            logger.warning(
-                "Sample size must be positive for fetching newest documents. Returning empty list."
+    @staticmethod
+    def get_newest_documents(
+        mongo_uri: str,
+        db_name: str,
+        collection_name: str,
+        sample_size: int,
+        server_timeout_ms: int = 5000,
+    ) -> List[Dict]:
+        if not db_manager.db_connection_active(
+            uri=mongo_uri, db_name=db_name, server_timeout_ms=server_timeout_ms
+        ):
+            raise PyMongoConnectionFailure(
+                f"MongoDB connection failed for sampling ({db_name}.{collection_name})"
             )
-            return []
 
-        projection_doc: Optional[Dict[str, int]] = None
+        database = db_manager.get_mongo_db()
+        collection = database[collection_name]
+        query_cursor = None
 
-        query_cursor = (
-            collection.find(projection=projection_doc).sort("_id", DESCENDING).limit(sample_size)
-        )
+        try:
+            if sample_size <= 0:
+                logger.warning(
+                    "Sample size must be positive for fetching newest documents. Returning empty list."
+                )
+                return []
 
-        raw_documents = list(query_cursor)
-        processed_docs: List[Dict] = []
-        for doc in raw_documents:
-            processed_doc = {}
-            for key, value in doc.items():
-                if isinstance(value, ObjectId):
-                    processed_doc[key] = str(value)
-                elif isinstance(value, datetime):
-                    processed_doc[key] = value.isoformat()
-                elif isinstance(value, uuid.UUID):
-                    processed_doc[key] = str(value)
-                elif isinstance(value, Binary):
-                    hex_val = value.hex()
-                    processed_doc[key] = (
-                        f"binary_hex:{hex_val[:64]}{'...' if len(hex_val) > 64 else ''}"
-                    )
-                elif isinstance(value, Decimal128):
-                    processed_doc[key] = str(value.to_decimal())
-                elif isinstance(value, (list, dict, str, int, float, bool)) or value is None:
-                    if (
-                        isinstance(value, (list, dict))
-                        and len(json.dumps(value, default=str)) > 500
-                    ):
-                        processed_doc[key] = f"{type(value).__name__}(too large to display inline)"
+            projection_doc: Optional[Dict[str, int]] = None
+
+            query_cursor = (
+                collection.find(projection=projection_doc).sort("_id", DESCENDING).limit(
+                    sample_size)
+            )
+
+            raw_documents = list(query_cursor)
+            processed_docs: List[Dict] = []
+            for doc in raw_documents:
+                processed_doc = {}
+                for key, value in doc.items():
+                    if isinstance(value, ObjectId):
+                        processed_doc[key] = str(value)
+                    elif isinstance(value, datetime):
+                        processed_doc[key] = value.isoformat()
+                    elif isinstance(value, uuid.UUID):
+                        processed_doc[key] = str(value)
+                    elif isinstance(value, Binary):
+                        if value.subtype in (_BSON_UUID_SUBTYPE_STANDARD,
+                                             _BSON_UUID_SUBTYPE_LEGACY_PYTHON):
+                            try:
+                                representation = UuidRepresentation.STANDARD if value.subtype == _BSON_UUID_SUBTYPE_STANDARD else UuidRepresentation.PYTHON_LEGACY
+                                processed_doc[key] = str(value.as_uuid(representation))
+                            except Exception:
+                                processed_doc[key] = value.hex()[:64] + (
+                                    '...' if len(value.hex()) > 64 else '')
+                        else:
+                            hex_val = value.hex()
+                            processed_doc[key] = (
+                                f"binary_hex:{hex_val[:64]}{'...' if len(hex_val) > 64 else ''}"
+                            )
+                    elif isinstance(value, Decimal128):
+                        processed_doc[key] = str(value.to_decimal())
+                    elif isinstance(value, (list, dict, str, int, float, bool)) or value is None:
+                        try:
+                            val_str_for_size_check = json.dumps(value, default=str) if isinstance(
+                                value, (dict, list)) else str(value)
+                            if len(val_str_for_size_check) > 500:
+                                processed_doc[
+                                    key] = f"{type(value).__name__}(too large to display inline)"
+                            else:
+                                processed_doc[key] = value
+                        except TypeError:
+                            processed_doc[
+                                key] = f"unserializable_type:{type(value).__name__}:{str(value)[:50]}"
+
                     else:
-                        processed_doc[key] = value
-                else:
-                    processed_doc[key] = f"unhandled_type:{type(value).__name__}:{str(value)[:50]}"
-            processed_docs.append(processed_doc)
+                        processed_doc[
+                            key] = f"unhandled_type:{type(value).__name__}:{str(value)[:50]}"
+                processed_docs.append(processed_doc)
 
-        logger.info(
-            f"Fetched {len(processed_docs)} newest documents from {db_name}.{collection_name}"
-        )
-        return processed_docs
+            logger.info(
+                f"Fetched {len(processed_docs)} newest documents from {db_name}.{collection_name}"
+            )
+            return processed_docs
 
-    except PyMongoOperationFailure as e:
-        logger.error(
-            f"MongoDB operation failed during document fetching ({db_name}.{collection_name}): {e}"
-        )
-        raise
-    except Exception as e:
-        logger.error(
-            f"Unexpected error during document fetching ({db_name}.{collection_name}): {e}",
-            exc_info=True,
-        )
-        raise
-    finally:
-        if query_cursor is not None:
-            query_cursor.close()
-            logger.debug("MongoDB cursor closed for get_newest_documents.")
+        except PyMongoOperationFailure as e:
+            logger.error(
+                f"MongoDB operation failed during document fetching ({db_name}.{collection_name}): {e}"
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                f"Unexpected error during document fetching ({db_name}.{collection_name}): {e}",
+                exc_info=True,
+            )
+            raise
+        finally:
+            if query_cursor is not None:
+                query_cursor.close()
+                logger.debug("MongoDB cursor closed for get_newest_documents.")
