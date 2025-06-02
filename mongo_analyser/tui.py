@@ -44,7 +44,7 @@ class MongoAnalyserApp(App[None]):
 
     BINDINGS = [
         Binding("q", "quit_app_action", "Quit", show=True, priority=True),
-        Binding("ctrl+t", "toggle_theme", "Toggle Theme", show=True),
+        Binding("ctrl+t", "change_theme", "Change Theme", show=True),
         Binding("ctrl+c", "app_copy", "Copy Text", show=True, key_display="Ctrl+C"),
         Binding("ctrl+insert", "app_copy", "Copy Text (Alt)", show=False, priority=True),
         Binding("ctrl+v", "app_paste", "Paste Text", show=True, key_display="Ctrl+V"),
@@ -294,11 +294,11 @@ class MongoAnalyserApp(App[None]):
                 "Cannot paste here. Focus an input field.", title="Paste Info", severity="warning"
             )
 
-    def action_toggle_theme(self) -> None:
+    def action_change_theme(self) -> None:
         current_theme_name = self.theme
 
         if not VALID_THEMES:
-            logger.warning("VALID_THEMES is empty. Cannot toggle theme.")
+            logger.warning("VALID_THEMES is empty. Cannot change theme.")
             return
 
         try:
@@ -315,9 +315,9 @@ class MongoAnalyserApp(App[None]):
 
         if hasattr(self, "config_manager") and self.config_manager:
             self.config_manager.update_setting("theme", new_theme_name)
-            logger.info(f"Theme toggled to: {new_theme_name} and updated in config manager.")
+            logger.info(f"Theme changed to: {new_theme_name} and updated in config manager.")
         else:
-            logger.info(f"Theme toggled to: {new_theme_name} (config manager not available).")
+            logger.info(f"Theme changed to: {new_theme_name} (config manager not available).")
 
     async def action_quit_app_action(self) -> None:
         if hasattr(self, "config_manager") and self.config_manager:
