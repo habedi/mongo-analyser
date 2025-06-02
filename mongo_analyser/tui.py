@@ -4,15 +4,6 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Type, Union
 
-from mongo_analyser.core import db as core_db_manager
-from mongo_analyser.core.config_manager import DEFAULT_THEME_NAME, VALID_THEMES, ConfigManager
-from mongo_analyser.views import (
-    ChatView,
-    ConfigView,
-    DataExplorerView,
-    DBConnectionView,
-    SchemaAnalysisView,
-)
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -31,6 +22,16 @@ from textual.widgets import (
     Tab,
     Tabs,
     TextArea,
+)
+
+from mongo_analyser.core import db as core_db_manager
+from mongo_analyser.core.config_manager import DEFAULT_THEME_NAME, VALID_THEMES, ConfigManager
+from mongo_analyser.views import (
+    ChatView,
+    ConfigView,
+    DataExplorerView,
+    DBConnectionView,
+    SchemaAnalysisView,
 )
 
 logger = logging.getLogger(__name__)

@@ -10,12 +10,6 @@ from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from mongo_analyser.core.analyser import SchemaAnalyser
 
 
-# from decimal import Decimal as PyDecimal # Not used directly in this file after corrections
-
-
-# from mongo_analyser.core import shared # Not used directly in this file after corrections
-
-
 @pytest.fixture
 def mock_collection():
     collection_mock = MagicMock()
@@ -52,14 +46,11 @@ class TestSchemaAnalyser:
         ],
     )
     def test_make_hashable(self, item, expected_hashable_item):
-        # Arrange (parameters)
-        # Act
         result = SchemaAnalyser._make_hashable(item)
-        # Assert
+
         assert result == expected_hashable_item
 
     def test_extract_schema_and_stats_simple_doc(self):
-        # Arrange
         doc = {
             "name": "test",
             "age": 30,
@@ -84,9 +75,9 @@ class TestSchemaAnalyser:
             "binary_data": {"type": "binary<generic>"},
             "uuid_val": {"type": "binary<UUID>"},
         }
-        # Act
+
         schema, stats = SchemaAnalyser.extract_schema_and_stats(doc.copy())
-        # Assert
+
         assert schema == expected_schema
         assert stats["name"]["count"] == 1
         assert stats["name"]["type_counts"]["str"] == 1
@@ -99,11 +90,10 @@ class TestSchemaAnalyser:
         assert stats["binary_data"]["type_counts"]["binary<generic>"] == 1
 
     def test_extract_schema_and_stats_nested_doc(self):
-        # Arrange
         doc = {"user": {"name": "tester", "details": {"age": 25}}}
-        # Act
+
         schema, stats = SchemaAnalyser.extract_schema_and_stats(doc)
-        # Assert
+
         assert "user.name" in stats
         assert "user.details.age" in stats
         assert stats["user.name"]["type_counts"]["str"] == 1
@@ -111,19 +101,16 @@ class TestSchemaAnalyser:
         assert stats["user.details.age"]["numeric_min"] == 25
 
     def test_extract_schema_and_stats_array_handling(self):
-        # Arrange
         doc_empty_array = {"tags": []}
-        doc_simple_array = {"scores": [10, 20, 10]}  # 10 appears twice
+        doc_simple_array = {"scores": [10, 20, 10]}
         doc_mixed_array = {"mixed": [1, "a", True]}
         doc_dict_array = {"items": [{"id": 1}, {"id": 2}]}
 
-        # Act
         schema_empty, stats_empty = SchemaAnalyser.extract_schema_and_stats(doc_empty_array)
         schema_simple, stats_simple = SchemaAnalyser.extract_schema_and_stats(doc_simple_array)
         schema_mixed, stats_mixed = SchemaAnalyser.extract_schema_and_stats(doc_mixed_array)
         schema_dict, stats_dict = SchemaAnalyser.extract_schema_and_stats(doc_dict_array)
 
-        # Assert
         assert schema_empty["tags"]["type"] == "array<empty>"
         assert stats_empty["tags"]["count"] == 1
         assert not stats_empty["tags"]["array_element_stats"]["type_counts"]
@@ -133,7 +120,7 @@ class TestSchemaAnalyser:
         assert stats_simple["scores"]["array_element_stats"]["type_counts"]["int32"] == 3
         assert stats_simple["scores"]["array_element_stats"]["numeric_min"] == 10
         assert stats_simple["scores"]["array_element_stats"]["numeric_max"] == 20
-        # Corrected: Current code only collects value_frequencies for strings < 256 chars
+
         assert stats_simple["scores"]["array_element_stats"]["value_frequencies"].get(10, 0) == 0
         assert stats_simple["scores"]["array_element_stats"]["value_frequencies"].get(20, 0) == 0
 
@@ -145,7 +132,6 @@ class TestSchemaAnalyser:
         assert schema_dict["items"]["type"] == "array<dict>"
 
     def test_get_collection_success(self, mock_db_manager):
-        # Arrange
         mock_db_manager.db_connection_active.return_value = True
         mock_db_obj = MagicMock()
         mock_collection_obj = MagicMock()
@@ -155,10 +141,8 @@ class TestSchemaAnalyser:
         db_name = "testdb"
         collection_name = "items"
 
-        # Act
         collection = SchemaAnalyser.get_collection(uri, db_name, collection_name)
 
-        # Assert
         mock_db_manager.db_connection_active.assert_called_once_with(
             uri=uri, db_name=db_name, server_timeout_ms=5000
         )
@@ -167,13 +151,11 @@ class TestSchemaAnalyser:
         assert collection == mock_collection_obj
 
     def test_get_collection_failure(self, mock_db_manager):
-        # Arrange
         mock_db_manager.db_connection_active.return_value = False
         uri = "mongodb://localhost"
         db_name = "testdb"
         collection_name = "items"
 
-        # Act & Assert
         with pytest.raises(PyMongoConnectionFailure):
             SchemaAnalyser.get_collection(uri, db_name, collection_name)
 
@@ -182,7 +164,6 @@ class TestSchemaAnalyser:
         )
 
     def test_list_collection_names_success(self, mock_db_manager):
-        # Arrange
         mock_db_manager.db_connection_active.return_value = True
         mock_db_obj = MagicMock()
         mock_db_obj.list_collection_names.return_value = ["c", "a", "b"]
@@ -190,17 +171,14 @@ class TestSchemaAnalyser:
         uri = "mongodb://localhost"
         db_name = "testdb"
 
-        # Act
         names = SchemaAnalyser.list_collection_names(uri, db_name)
 
-        # Assert
         assert names == ["a", "b", "c"]
         mock_db_manager.db_connection_active.assert_called_once()
         mock_db_manager.get_mongo_db.assert_called_once()
         mock_db_obj.list_collection_names.assert_called_once()
 
     def test_list_collection_names_op_failure(self, mock_db_manager):
-        # Arrange
         mock_db_manager.db_connection_active.return_value = True
         mock_db_obj = MagicMock()
         mock_db_obj.list_collection_names.side_effect = PyMongoOperationFailure("failed")
@@ -208,34 +186,29 @@ class TestSchemaAnalyser:
         uri = "mongodb://localhost"
         db_name = "testdb"
 
-        # Act & Assert
         with pytest.raises(PyMongoOperationFailure):
             SchemaAnalyser.list_collection_names(uri, db_name)
 
     def test_infer_schema_and_field_stats_sample_size(self, mock_collection):
-        # Arrange
         docs_to_return = [
             {"_id": ObjectId(), "name": "A", "value": 10, "tags": ["x"]},
             {"_id": ObjectId(), "name": "B", "value": 20, "info": {"valid": True}},
             {"_id": ObjectId(), "name": "A", "value": 15, "tags": ["x", "y"]},
         ]
 
-        # Corrected mock for aggregate().batch_size()
         mock_aggregate_result = MagicMock()
         mock_aggregate_result.batch_size.return_value = iter(docs_to_return)
         mock_collection.aggregate.return_value = mock_aggregate_result
         sample_size = 3
 
-        # Act
         schema, stats = SchemaAnalyser.infer_schema_and_field_stats(
-            mock_collection, sample_size, batch_size=1000  # Match default or pass explicitly
+            mock_collection, sample_size, batch_size=1000
         )
 
-        # Assert
         mock_collection.aggregate.assert_called_once_with(
             [{"$sample": {"size": sample_size}}]
         )
-        mock_aggregate_result.batch_size.assert_called_once_with(1000)  # Check batch_size call
+        mock_aggregate_result.batch_size.assert_called_once_with(1000)
 
         assert "name" in schema
         assert schema["name"]["type"] == "str"
@@ -261,29 +234,24 @@ class TestSchemaAnalyser:
         assert stats["info.valid"]["type_distribution"] == {"bool": 1}
 
     def test_infer_schema_and_field_stats_full_scan(self, mock_collection):
-        # Arrange
         docs_to_return = [{"data": "full"}]
         mock_find_result = MagicMock()
         mock_find_result.batch_size.return_value = iter(docs_to_return)
         mock_collection.find.return_value = mock_find_result
         sample_size = -1
 
-        # Act
         schema, stats = SchemaAnalyser.infer_schema_and_field_stats(
-            mock_collection, sample_size, batch_size=1000  # Match default or pass explicitly
+            mock_collection, sample_size, batch_size=1000
         )
 
-        # Assert
         mock_collection.find.assert_called_once_with()
         mock_find_result.batch_size.assert_called_with(1000)
         assert "data" in schema
 
     def test_infer_schema_and_field_stats_op_failure(self, mock_collection):
-        # Arrange
         mock_collection.aggregate.side_effect = PyMongoOperationFailure("sampling failed")
         sample_size = 10
 
-        # Act & Assert
         with pytest.raises(PyMongoOperationFailure):
             SchemaAnalyser.infer_schema_and_field_stats(mock_collection, sample_size)
 
@@ -320,8 +288,6 @@ class TestSchemaAnalyser:
         ],
     )
     def test_schema_to_hierarchical(self, flat_schema, hierarchical_schema):
-        # Arrange (parameters)
-        # Act
         result = SchemaAnalyser.schema_to_hierarchical(flat_schema)
-        # Assert
+
         assert result == hierarchical_schema

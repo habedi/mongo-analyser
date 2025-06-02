@@ -71,35 +71,34 @@ class TestShared:
                     False,
             ),
             (
-                    "mongodb://user@host:port/db",  # No password
+                    "mongodb://user@host:port/db",
                     "mongodb://user@host:port/db",
                     False,
             ),
             (
-                    "mongodb://host:port/db",  # No credentials at all
+                    "mongodb://host:port/db",
                     "mongodb://host:port/db",
                     False,
             ),
             (
-                # urlparse("mongodb://user:p@ssw%20rd@host/db") →
-                # username="user", password="p@ssw rd", hostname="host"
+
                     "mongodb://user:p@ssw%20rd@host/db",
-                    # The code masks, leaving "%20rd" intact:
+
                     "mongodb://user:********@ssw%20rd@host/db",
                     False,
             ),
             (
                     "mongodb://:password@host/db",
-                    "mongodb://:********@host/db",  # empty username, non-empty password
+                    "mongodb://:********@host/db",
                     False,
             ),
             (
-                    "mongodb://user:@host/db",  # empty password
-                    "mongodb://user:@host/db",  # no masking because parsed.password == ""
+                    "mongodb://user:@host/db",
+                    "mongodb://user:@host/db",
                     False,
             ),
             (
-                # urlparse("mongodb://你好:世界@host:port/db") → username="你好", password="世界", hostname="host", port=None
+
                     "mongodb://你好:世界@host:port/db",
                     "mongodb://你好:********@host:port/db",
                     False,
@@ -110,14 +109,14 @@ class TestShared:
                     False,
             ),
             (
-                    "",  # empty string
+                    "",
                     "",
                     False,
             ),
             (
                     None,
                     None,
-                    False,  # code simply returns None without logging
+                    False,
             ),
         ],
     )

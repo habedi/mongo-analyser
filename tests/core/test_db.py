@@ -25,17 +25,14 @@ def mock_mongo_client_class():
 def mock_mongo_client_instance(mock_mongo_client_class):
     mock_instance = MagicMock(spec=MongoClient)
 
-    # By default, admin.command("ping") succeeds
     mock_admin_db = MagicMock()
     mock_admin_db.command.return_value = {"ok": 1}
     mock_instance.admin = mock_admin_db
 
-    # get_database().name returns "resolved_db_from_uri"
     mock_default_db = MagicMock()
     mock_default_db.name = "resolved_db_from_uri"
     mock_instance.get_database.return_value = mock_default_db
 
-    # Also set __getitem__ to return a database object whose name matches
     mock_db_via_getitem = MagicMock()
     mock_db_via_getitem.name = "resolved_db_from_uri"
     mock_instance.__getitem__.return_value = mock_db_via_getitem
@@ -54,10 +51,8 @@ class TestDBManager:
         is_active = db_manager.db_connection_active(uri=uri, db_name=None)
         assert is_active is True
 
-        # get_mongo_client() returns our mock
         assert db_manager.get_mongo_client() == mock_mongo_client_instance
 
-        # get_mongo_db() was obtained via __getitem__[db_name], so its name is "resolved_db_from_uri"
         result_db = db_manager.get_mongo_db()
         assert result_db.name == "resolved_db_from_uri"
 
@@ -72,7 +67,6 @@ class TestDBManager:
         uri = "mongodb://localhost/"
         db_name_arg = "explicit_db"
 
-        # __getitem__ should return a mock DB whose name is "explicit_db"
         mock_db_for_explicit = MagicMock()
         mock_db_for_explicit.name = db_name_arg
         mock_mongo_client_instance.__getitem__.return_value = mock_db_for_explicit
@@ -143,10 +137,8 @@ class TestDBManager:
         uri = "mongodb://localhost/mydb"
         mock_mongo_client_instance.get_database.return_value.name = "mydb"
 
-        # First connect
         db_manager.db_connection_active(uri=uri, db_name="mydb")
 
-        # Second call should just ping
         mock_mongo_client_instance.admin.command.reset_mock()
         is_active_again = db_manager.db_connection_active(uri=uri, db_name="mydb")
 
@@ -160,7 +152,6 @@ class TestDBManager:
         initial_db_name = "db1"
         new_db_name = "db2"
 
-        # Initial connect to db1
         mock_db1 = MagicMock()
         mock_db1.name = initial_db_name
         mock_mongo_client_instance.__getitem__.return_value = mock_db1
@@ -168,7 +159,6 @@ class TestDBManager:
         db_manager.db_connection_active(uri=uri, db_name=initial_db_name)
         assert db_manager.get_current_resolved_db_name() == initial_db_name
 
-        # Switch to db2
         mock_db2 = MagicMock()
         mock_db2.name = new_db_name
         mock_mongo_client_instance.__getitem__.return_value = mock_db2
@@ -187,12 +177,10 @@ class TestDBManager:
         uri = "mongodb://localhost/mydb"
         db_name = "mydb"
 
-        # 1) Initial connect
         mock_mongo_client_instance.get_database.return_value.name = db_name
         db_manager.db_connection_active(uri=uri, db_name=db_name)
         initial_client = db_manager.get_mongo_client()
 
-        # 2) Prepare a brand-new client for forced reconnect
         new_instance = MagicMock(spec=MongoClient)
         new_admin = MagicMock()
         new_admin.command.return_value = {"ok": 1}
@@ -219,13 +207,11 @@ class TestDBManager:
         mock_mongo_client_instance.get_database.return_value.name = "mydb"
         db_manager.db_connection_active(uri=uri, db_name="mydb")
 
-        # Simulate ping failure on get_mongo_db()
         mock_mongo_client_instance.admin.command.side_effect = ConnectionFailure("Lost on ping")
 
         with pytest.raises(ConnectionError, match="MongoDB connection lost. Reconnect needed."):
             db_manager.get_mongo_db()
 
-        # After disconnect, get_last_connection_error_details() should be None
         assert db_manager.get_last_connection_error_details() is None
 
     def test_disconnect_mongo_closes_client(self, mock_mongo_client_instance):

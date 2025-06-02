@@ -1,13 +1,6 @@
 import logging
 from typing import Any, Dict, Optional
 
-from mongo_analyser.core.config_manager import (
-    DEFAULT_SETTINGS,
-    DEFAULT_THEME_NAME,
-    VALID_THEMES,
-    ConfigManager,
-)
-from mongo_analyser.dialogs import ConfirmDialog, ErrorDialog
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -16,6 +9,14 @@ from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Button, Input, Label, Select, Static
+
+from mongo_analyser.core.config_manager import (
+    DEFAULT_SETTINGS,
+    DEFAULT_THEME_NAME,
+    VALID_THEMES,
+    ConfigManager,
+)
+from mongo_analyser.dialogs import ConfirmDialog, ErrorDialog
 
 logger = logging.getLogger(__name__)
 

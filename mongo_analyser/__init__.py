@@ -1,5 +1,4 @@
 import logging
-
 from importlib.metadata import PackageNotFoundError, version
 
 _logger = logging.getLogger(__name__)

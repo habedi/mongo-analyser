@@ -8,8 +8,10 @@ from typing import Any, Dict, List, Optional, Union
 
 import pytz
 from bson import Binary, Decimal128, Int64, ObjectId
+
 # Use integer literals for subtypes instead of potentially missing named constants
 from bson.binary import UuidRepresentation  # Keep this for UuidRepresentation enum
+
 # from bson.binary import UUID_SUBTYPE, UUID_LEGACY_SUBTYPE # Remove this problematic import
 from pymongo import DESCENDING
 from pymongo.errors import (
@@ -54,7 +56,9 @@ class DataExtractor:
         elif isinstance(value, uuid.UUID):
             return "UUID"
         elif isinstance(value, Binary):
-            if value.subtype == _BSON_UUID_SUBTYPE_LEGACY_PYTHON:  # Use defined constant or literal 3
+            if (
+                value.subtype == _BSON_UUID_SUBTYPE_LEGACY_PYTHON
+            ):  # Use defined constant or literal 3
                 return "binary<UUID (legacy)>"
             if value.subtype == _BSON_UUID_SUBTYPE_STANDARD:  # Use defined constant or literal 4
                 return "binary<UUID>"
@@ -112,8 +116,9 @@ class DataExtractor:
                 return [
                     DataExtractor.convert_to_json_compatible(
                         item, items_schema_for_array_elements, tz
-                    ) if isinstance(item, dict) else DataExtractor._convert_single_value(item, None,
-                                                                                         tz)
+                    )
+                    if isinstance(item, dict)
+                    else DataExtractor._convert_single_value(item, None, tz)
                     for item in val
                 ]
             else:
@@ -123,7 +128,7 @@ class DataExtractor:
                     and type_to_check.startswith("array<")
                     and type_to_check.endswith(">")
                 ):
-                    item_type_str_for_elements = type_to_check[len("array<"): -1]
+                    item_type_str_for_elements = type_to_check[len("array<") : -1]
 
                 return [
                     DataExtractor._convert_single_value(item, item_type_str_for_elements, tz)
@@ -133,8 +138,10 @@ class DataExtractor:
         if isinstance(val, uuid.UUID):
             return str(val)
 
-        if isinstance(val, Binary) and val.subtype in (_BSON_UUID_SUBTYPE_STANDARD,
-                                                       _BSON_UUID_SUBTYPE_LEGACY_PYTHON):
+        if isinstance(val, Binary) and val.subtype in (
+            _BSON_UUID_SUBTYPE_STANDARD,
+            _BSON_UUID_SUBTYPE_LEGACY_PYTHON,
+        ):
             try:
                 py_uuid = None
                 if val.subtype == _BSON_UUID_SUBTYPE_STANDARD:
@@ -149,11 +156,13 @@ class DataExtractor:
                     return str(py_uuid)
                 else:
                     logger.warning(
-                        f"Binary UUID subtype {val.subtype} could not be converted to Python UUID, falling to hex.")
+                        f"Binary UUID subtype {val.subtype} could not be converted to Python UUID, falling to hex."
+                    )
                     return val.hex()
             except Exception as e:
                 logger.warning(
-                    f"Could not convert Binary UUID subtype {val.subtype} (Exception: {e}), falling back to hex.")
+                    f"Could not convert Binary UUID subtype {val.subtype} (Exception: {e}), falling back to hex."
+                )
                 return val.hex()
 
         if type_to_check == "binary<UUID>" or type_to_check == "binary<UUID (legacy)>":
@@ -163,11 +172,15 @@ class DataExtractor:
                     return val
                 except ValueError:
                     pass
-            if isinstance(val, Binary): return val.hex()
+            if isinstance(val, Binary):
+                return val.hex()
             return str(val)
 
-        if type_to_check == "binary<ObjectId>" or type_to_check == "ObjectId" or isinstance(val,
-                                                                                            ObjectId):
+        if (
+            type_to_check == "binary<ObjectId>"
+            or type_to_check == "ObjectId"
+            or isinstance(val, ObjectId)
+        ):
             return str(val)
 
         if type_to_check == "datetime" or isinstance(val, datetime):
@@ -218,9 +231,10 @@ class DataExtractor:
             if isinstance(field_schema_definition, dict):
                 type_str_from_schema = field_schema_definition.get("type")
 
-                if type_str_from_schema and type_str_from_schema.startswith(
-                    "array<") and isinstance(
-                    field_schema_definition.get("items"), dict
+                if (
+                    type_str_from_schema
+                    and type_str_from_schema.startswith("array<")
+                    and isinstance(field_schema_definition.get("items"), dict)
                 ):
                     if type_str_from_schema == "array<dict>":
                         items_sub_schema = field_schema_definition.get("items")
@@ -380,8 +394,9 @@ class DataExtractor:
             projection_doc: Optional[Dict[str, int]] = None
 
             query_cursor = (
-                collection.find(projection=projection_doc).sort("_id", DESCENDING).limit(
-                    sample_size)
+                collection.find(projection=projection_doc)
+                .sort("_id", DESCENDING)
+                .limit(sample_size)
             )
 
             raw_documents = list(query_cursor)
@@ -396,14 +411,21 @@ class DataExtractor:
                     elif isinstance(value, uuid.UUID):
                         processed_doc[key] = str(value)
                     elif isinstance(value, Binary):
-                        if value.subtype in (_BSON_UUID_SUBTYPE_STANDARD,
-                                             _BSON_UUID_SUBTYPE_LEGACY_PYTHON):
+                        if value.subtype in (
+                            _BSON_UUID_SUBTYPE_STANDARD,
+                            _BSON_UUID_SUBTYPE_LEGACY_PYTHON,
+                        ):
                             try:
-                                representation = UuidRepresentation.STANDARD if value.subtype == _BSON_UUID_SUBTYPE_STANDARD else UuidRepresentation.PYTHON_LEGACY
+                                representation = (
+                                    UuidRepresentation.STANDARD
+                                    if value.subtype == _BSON_UUID_SUBTYPE_STANDARD
+                                    else UuidRepresentation.PYTHON_LEGACY
+                                )
                                 processed_doc[key] = str(value.as_uuid(representation))
                             except Exception:
                                 processed_doc[key] = value.hex()[:64] + (
-                                    '...' if len(value.hex()) > 64 else '')
+                                    "..." if len(value.hex()) > 64 else ""
+                                )
                         else:
                             hex_val = value.hex()
                             processed_doc[key] = (
@@ -413,20 +435,26 @@ class DataExtractor:
                         processed_doc[key] = str(value.to_decimal())
                     elif isinstance(value, (list, dict, str, int, float, bool)) or value is None:
                         try:
-                            val_str_for_size_check = json.dumps(value, default=str) if isinstance(
-                                value, (dict, list)) else str(value)
+                            val_str_for_size_check = (
+                                json.dumps(value, default=str)
+                                if isinstance(value, (dict, list))
+                                else str(value)
+                            )
                             if len(val_str_for_size_check) > 500:
-                                processed_doc[
-                                    key] = f"{type(value).__name__}(too large to display inline)"
+                                processed_doc[key] = (
+                                    f"{type(value).__name__}(too large to display inline)"
+                                )
                             else:
                                 processed_doc[key] = value
                         except TypeError:
-                            processed_doc[
-                                key] = f"unserializable_type:{type(value).__name__}:{str(value)[:50]}"
+                            processed_doc[key] = (
+                                f"unserializable_type:{type(value).__name__}:{str(value)[:50]}"
+                            )
 
                     else:
-                        processed_doc[
-                            key] = f"unhandled_type:{type(value).__name__}:{str(value)[:50]}"
+                        processed_doc[key] = (
+                            f"unhandled_type:{type(value).__name__}:{str(value)[:50]}"
+                        )
                 processed_docs.append(processed_doc)
 
             logger.info(

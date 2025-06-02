@@ -45,7 +45,7 @@ class TestDataExtractor:
             ([1, 2], "array<int32>"),
             ([1, "a"], "array<mixed>"),
             ([None, None], "array<null>"),
-            ([1, None], "array<int32>"),  # nulls are ignored if other types present
+            ([1, None], "array<int32>"),
             ({}, "dict"),
             (Decimal128("1.2"), "decimal128"),
             (None, "null"),
@@ -73,7 +73,7 @@ class TestDataExtractor:
             (datetime(2023, 1, 1, 12, 0, 0, tzinfo=timezone.utc), "datetime", None,
              "2023-01-01T12:00:00+00:00"),
             (datetime(2023, 1, 1, 12, 0, 0), "datetime", pytz.timezone("Europe/Oslo"),
-             "2023-01-01T13:00:00+01:00"),  # Assuming UTC if no tzinfo
+             "2023-01-01T13:00:00+01:00"),
             ("test", "str", None, "test"),
             (123, "int32", None, 123),
             (Int64(456), "int64", None, 456),
@@ -83,7 +83,7 @@ class TestDataExtractor:
             (Binary(b"\xDE\xAD\xBE\xEF", 0), "binary<generic>", None, "deadbeef"),
             ([1, 2], "array<int32>", None, [1, 2]),
             ({"a": 1}, "dict", None, {"a": 1}),
-            # Simple pass-through for dict if not handled by array<dict> path
+
         ],
     )
     def test_convert_single_value(self, val, schema_type_str, tz_obj, expected_converted_val):
@@ -114,7 +114,7 @@ class TestDataExtractor:
             },
             "logs": {
                 "type": "array<dict>",
-                "items": {  # Schema for items in the 'logs' array
+                "items": {
                     "ts": {"type": "datetime"},
                     "msg": {"type": "str"}
                 }
@@ -129,7 +129,7 @@ class TestDataExtractor:
         assert converted["details"]["values"] == ["10.1", "20.2"]
         assert len(converted["logs"]) == 1
         assert converted["logs"][0][
-                   "ts"] == "2024-06-01T12:00:05+02:00"  # Assuming naive datetime becomes UTC then Oslo
+                   "ts"] == "2024-06-01T12:00:05+02:00"
         assert converted["logs"][0]["msg"] == "hello"
         assert converted["empty_list"] == []
 
@@ -148,7 +148,7 @@ class TestDataExtractor:
         ]
         mock_cursor.__iter__.return_value = iter(docs_to_return)
         mock_collection_obj.find.return_value = mock_cursor
-        mock_cursor.limit.return_value = mock_cursor  # if limit is used
+        mock_cursor.limit.return_value = mock_cursor
         mock_cursor.sort.return_value = mock_cursor
         mock_cursor.batch_size.return_value = mock_cursor
 
@@ -160,7 +160,7 @@ class TestDataExtractor:
         mock_get_worker.return_value = mock_worker_instance
 
         output_file = tmp_path / "out.json.gz"
-        schema = {"a": {"type": "int32"}, "b": {"type": "str"}}  # Simplified
+        schema = {"a": {"type": "int32"}, "b": {"type": "str"}}
 
         DataExtractor.extract_data(
             "uri", "db", "coll", schema, output_file, None, 100, 10
@@ -172,8 +172,6 @@ class TestDataExtractor:
 
         handle = mock_gzip_open()
 
-        # Verify JSON structure written to file (simplified check)
-        # This requires capturing calls to write
         written_content = "".join(call.args[0] for call in handle.write.call_args_list)
         assert written_content.startswith("[\n")
         assert written_content.endswith("\n]\n")
@@ -215,7 +213,7 @@ class TestDataExtractor:
                 "amount": dec128,
                 "name": "TestDoc",
                 "large_field": "x" * 600,
-                "unhandled": PyDecimal("1.0")  # To test unhandled type path
+                "unhandled": PyDecimal("1.0")
             }
         ]
         mock_cursor.__iter__.return_value = iter(docs_to_return)
@@ -232,7 +230,7 @@ class TestDataExtractor:
         assert doc["_id"] == str(object_id)
         assert doc["ts"] == dt_now.isoformat()
         assert doc["uid"] == str(my_uuid)
-        assert doc["bin_uid"] == str(my_uuid)  # Assuming conversion works
+        assert doc["bin_uid"] == str(my_uuid)
         assert doc["data"].startswith("binary_hex:010203")
         assert doc["amount"] == "123.45"
         assert doc["name"] == "TestDoc"
@@ -241,7 +239,7 @@ class TestDataExtractor:
         assert mock_cursor.close.called
 
     def test_get_newest_documents_sample_size_zero(self, mock_db_manager_extractor):
-        mock_db_manager_extractor.db_connection_active.return_value = True  #
+        mock_db_manager_extractor.db_connection_active.return_value = True
 
         docs = DataExtractor.get_newest_documents("uri", "db", "coll", 0)
 
