@@ -1,20 +1,17 @@
 import argparse
 import getpass
-import logging
 import os
 import sys
+from pathlib import Path
 
 from mongo_analyser.core.shared import build_mongo_uri, redact_uri_password
 from mongo_analyser.tui import main_interactive_tui
-
 from . import __version__ as mongo_analyser_version
-
-logger = logging.getLogger(__name__)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Mongo Analyser: Analyze and Understand Your Data in MongoDB",
+        description="Mongo Analyser: Analyze and Understand Your Data in MongoDB from the command line.",
         prog="mongo_analyser",
     )
     parser.add_argument(
@@ -22,73 +19,64 @@ def main():
         action="version",
         version=f"Mongo Analyser version {mongo_analyser_version}",
     )
-    parser.add_argument(
-        "--log-level",
-        type=str.upper,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "OFF"],
-        default="OFF",
-        help="Set the logging level for the application. Default is OFF (no logs).",
-    )
 
-    conn_group = parser.add_argument_group(title="MongoDB Connection Options")
+    conn_group = parser.add_argument_group(
+        title="MongoDB Connection Pre-fill Options",
+        description="Provide connection details to pre-fill the TUI. These can be changed within the application.",
+    )
     conn_group.add_argument(
-        "--mongo-uri",
+        "--uri",
+        dest="mongo_uri",
         type=str,
         default=os.getenv("MONGO_URI"),
-        help="MongoDB connection URI. If provided, it's used directly. "
-        "This can be overridden by inputs in the TUI later.",
+        help="MongoDB connection URI (e.g., 'mongodb://user:pass@host:port/db?options'). "
+             "If provided, other connection parts (host, port, etc.) are often ignored by the URI parser.",
     )
     conn_group.add_argument(
-        "--mongo-host",
+        "--host",
+        dest="mongo_host",
         type=str,
-        default=os.getenv("MONGO_HOST"),
-        help="MongoDB host. Used if --mongo-uri is not provided.",
+        default=os.getenv("MONGO_HOST", "localhost"),
+        help="MongoDB host. Default: localhost (if MONGO_HOST env var not set). Used if --uri is not provided.",
     )
     conn_group.add_argument(
-        "--mongo-port",
+        "--port",
+        dest="mongo_port",
         type=int,
-        default=os.getenv("MONGO_PORT"),
-        help="MongoDB port. Used if --mongo-uri is not provided.",
+        default=int(os.getenv("MONGO_PORT", 27017)),  # Ensure int conversion for getenv
+        help="MongoDB port. Default: 27017 (if MONGO_PORT env var not set). Used if --uri is not provided.",
     )
     conn_group.add_argument(
-        "--mongo-username", type=str, default=os.getenv("MONGO_USERNAME"), help="MongoDB username."
+        "--username",
+        dest="mongo_username",
+        type=str,
+        default=os.getenv("MONGO_USERNAME"),
+        help="MongoDB username. If provided without a password in the URI or via --password-env, you may be prompted.",
     )
     conn_group.add_argument(
-        "--mongo-password-env",
+        "--password-env",
+        dest="mongo_password_env",
         type=str,
         metavar="ENV_VAR_NAME",
         help="Environment variable name to read MongoDB password from. "
-        "If --mongo-username is provided and password is not in URI or via this env var, "
-        "password will be prompted.",
+             "Used if --username is provided and password is not in URI.",
     )
     conn_group.add_argument(
-        "--mongo-database",
+        "--db",
+        dest="mongo_database",
         type=str,
         default=os.getenv("MONGO_DATABASE"),
-        help="MongoDB database name to pre-fill in the TUI.",
+        help="MongoDB database name to pre-fill in the TUI. Can also be part of the URI path.",
     )
 
     args = parser.parse_args()
-
-    if args.log_level == "OFF":
-        logging.disable(logging.CRITICAL + 1)
-
-    else:
-        logging.basicConfig(
-            level=args.log_level,
-            format="%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s",
-            handlers=[logging.StreamHandler(sys.stderr)],
-            force=True,
-        )
-
-    logger.debug("CLI arguments parsed: %s", args)
 
     effective_mongo_uri = args.mongo_uri
     initial_target_db_name = args.mongo_database
 
     if not effective_mongo_uri:
-        host_to_use = args.mongo_host or "localhost"
-        port_to_use = args.mongo_port or 27017
+        host_to_use = args.mongo_host
+        port_to_use = args.mongo_port
         username_to_use = args.mongo_username
         password_to_use = None
 
@@ -96,9 +84,10 @@ def main():
             if args.mongo_password_env:
                 password_to_use = os.getenv(args.mongo_password_env)
                 if password_to_use is None:
-                    logger.warning(
-                        "Environment variable '%s' for MongoDB password not set. Prompting for password.",
-                        args.mongo_password_env,
+                    # Minimal feedback to stderr if password needs to be prompted
+                    print(
+                        f"Info: Environment variable '{args.mongo_password_env}' for MongoDB password not set.",
+                        file=sys.stderr
                     )
                     password_to_use = getpass.getpass(
                         f"Enter password for MongoDB user '{username_to_use}' on {host_to_use}:{port_to_use}: "
@@ -114,49 +103,44 @@ def main():
             username=username_to_use,
             password=password_to_use,
         )
-        logger.info(
-            "Constructed MongoDB URI from parts: %s", redact_uri_password(effective_mongo_uri)
-        )
+        # Example of a CLI-specific debug message if an env var is set
+        if os.getenv("MONGO_ANALYSER_CLI_DEBUG"):
+            print(
+                f"CLI Debug: Constructed MongoDB URI: {redact_uri_password(effective_mongo_uri)}",
+                file=sys.stderr
+            )
     else:
-        logger.info("Using provided MongoDB URI: %s", redact_uri_password(effective_mongo_uri))
+        if os.getenv("MONGO_ANALYSER_CLI_DEBUG"):
+            print(
+                f"CLI Debug: Using provided MongoDB URI: {redact_uri_password(effective_mongo_uri)}",
+                file=sys.stderr
+            )
 
     try:
         main_interactive_tui(
-            log_level_override=args.log_level,
+            log_level_override=None,  # Logging level is now handled by the TUI/config
             initial_mongo_uri=effective_mongo_uri,
             initial_db_name=initial_target_db_name,
         )
     except Exception as e:
-        log_file_path = "mongo_analyser_tui.log"
-
-        app_logger = logging.getLogger("mongo_analyser")
-        for handler in app_logger.handlers:
-            if isinstance(handler, logging.FileHandler) and hasattr(handler, "baseFilename"):
-                log_file_path = handler.baseFilename
-                break
-
         print("\nCRITICAL ERROR: Mongo Analyser TUI unexpectedly quit.", file=sys.stderr)
         print(f"Exception: {type(e).__name__}: {e}", file=sys.stderr)
 
-        if args.log_level != "OFF":
-            print(
-                f"Please check the log file for detailed traceback: {log_file_path}",
-                file=sys.stderr,
+        # Determine the default log file path as defined in tui.py's logging setup
+        default_log_dir = Path(
+            os.getenv(
+                "MONGO_ANALYSER_LOG_DIR",  # Check if the same env var is used for custom log dir
+                Path.home() / ".local" / "share" / "mongo_analyser" / "logs",
             )
-        else:
-            print(
-                "Logging was set to OFF. For a detailed error trace, re-run with a specific --log-level (e.g., --log-level DEBUG)",
-                file=sys.stderr,
-            )
+        )
+        default_log_file = default_log_dir / "mongo_analyser_tui.log"
 
-        if logger.isEnabledFor(logging.CRITICAL):
-            logger.critical(
-                "Unhandled error launching or during TUI execution: %s", e, exc_info=True
-            )
+        print(
+            f"If application logging was enabled (via its internal configuration), "
+            f"check the log file for a detailed traceback, typically located at: {default_log_file}",
+            file=sys.stderr,
+        )
         sys.exit(1)
-    finally:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("CLI launcher finished.")
 
 
 if __name__ == "__main__":
