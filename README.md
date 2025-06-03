@@ -92,7 +92,7 @@ Run `mongo_analyser --help` to see all available options and their descriptions.
 <details>
 <summary><strong>Documentation</strong></summary>
 
-### Environment Variables
+#### Environment Variables
 
 You can set environment variables to configure Mongo Analyser's connection to MongoDB and LLM providers.
 
@@ -111,7 +111,7 @@ For LLM providers, you can set API keys:
 * `OLLAMA_HOST`: Ollama host URL (default: `http://localhost:11434`)
 * `OLLAMA_CONTEXT_LENGTH`: Context length for Ollama models (default: `2048`)
 
-### Supported Field Types
+#### Supported Field Types
 
 Mongo Analyser supports the following field types when inferring the schema of a MongoDB collection:
 
