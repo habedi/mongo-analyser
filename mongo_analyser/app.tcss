@@ -189,7 +189,7 @@ ChatMessageWidget .role_assistant {
     text-align: right;
     color: #90EE90;
 }
-ChatMessageWidget .role_system { color: $warning; text-style: bold italic; }
+ChatMessageWidget .role_system { color: $warning; text-style: bold; }
 ChatMessageWidget > Markdown.message-content-box {
     background: #2E3440;
     border: round #88C0D0;
