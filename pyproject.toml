@@ -1,6 +1,6 @@
 [project]
 name = "mongo-analyser"
-version = "0.2.0b1"
+version = "0.2.0b2"
 description = "Analyze and understand data stored in MongoDB from the command line"
 readme = "README.md"
 license = { text = "MIT" }
