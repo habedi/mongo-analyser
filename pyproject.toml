@@ -1,6 +1,6 @@
 [project]
 name = "mongo-analyser"
-version = "0.2.0b2"
+version = "0.2.0"
 description = "Analyze and understand data stored in MongoDB from the command line"
 readme = "README.md"
 license = { text = "MIT" }
@@ -10,19 +10,34 @@ authors = [
 maintainers = [
     { name = "Hassan Abedi", email = "hassan.abedi.t@gmail.com" }
 ]
-keywords = ["mongodb", "nosql", "json", "artificial intelligence"]
+
 classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Other Audience",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Software Development :: Libraries :: Python Modules"
+    "Topic :: Terminals",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
 ]
+keywords = [
+    "mongodb",
+    "no-sql",
+    "json",
+    "ollama",
+    "openai",
+    "llm",
+    "ai",
+    "terminal",
+    "tui",
+]
+
 
 requires-python = ">=3.10,<4.0"
 dependencies = [
