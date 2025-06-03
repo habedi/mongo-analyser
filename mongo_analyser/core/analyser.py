@@ -1,11 +1,8 @@
-import csv
-import json
 import logging
 import uuid
-from collections import Counter, OrderedDict
+from collections import Counter
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from bson import Binary, Decimal128, Int64, ObjectId
 from pymongo.errors import (
@@ -35,14 +32,14 @@ class SchemaAnalyser:
     @staticmethod
     def extract_schema_and_stats(
         document: Dict,
-        schema: Optional[Union[Dict, OrderedDict]] = None,
-        stats: Optional[Union[Dict, OrderedDict]] = None,
+        schema: Optional[Dict] = None,
+        stats: Optional[Dict] = None,
         prefix: str = "",
-    ) -> Tuple[Union[Dict, OrderedDict], Union[Dict, OrderedDict]]:
+    ) -> Tuple[Dict, Dict]:
         if schema is None:
-            schema = OrderedDict()
+            schema = {}
         if stats is None:
-            stats = OrderedDict()
+            stats = {}
 
         for key, value in document.items():
             full_key = f"{prefix}.{key}" if prefix else key
@@ -84,8 +81,8 @@ class SchemaAnalyser:
     @staticmethod
     def handle_array(
         value: List,
-        schema: Union[Dict, OrderedDict],
-        stats: Union[Dict, OrderedDict],
+        schema: Dict,
+        stats: Dict,
         full_key: str,
     ) -> None:
         current_field_stats = stats[full_key]
@@ -149,12 +146,11 @@ class SchemaAnalyser:
     @staticmethod
     def handle_simple_value(
         value: Any,
-        schema: Union[Dict, OrderedDict],
+        schema: Dict,
         stats_dict_to_update: Dict,
         full_key: str,
         is_array_element: bool,
     ) -> None:
-        # ensure base stats keys exist
         stats_dict_to_update.setdefault("values", set())
         stats_dict_to_update.setdefault("type_counts", Counter())
         stats_dict_to_update.setdefault("numeric_min", float("inf"))
@@ -163,7 +159,6 @@ class SchemaAnalyser:
         stats_dict_to_update.setdefault("date_max", None)
         stats_dict_to_update.setdefault("value_frequencies", Counter())
 
-        # determine type name
         if isinstance(value, ObjectId):
             value_type_name = "binary<ObjectId>"
         elif isinstance(value, uuid.UUID):
@@ -191,7 +186,7 @@ class SchemaAnalyser:
             schema[full_key] = {"type": value_type_name}
             try:
                 stats_dict_to_update["values"].add(SchemaAnalyser._make_hashable(value))
-            except Exception:
+            except:
                 stats_dict_to_update["values"].add(f"unhashable_value_type_{type(value).__name__}")
 
         stats_dict_to_update["type_counts"].update([value_type_name])
@@ -248,8 +243,8 @@ class SchemaAnalyser:
     def infer_schema_and_field_stats(
         collection: PyMongoCollection, sample_size: int, batch_size: int = 1000
     ) -> Tuple[Dict, Dict]:
-        schema: OrderedDict = OrderedDict()
-        stats: OrderedDict = OrderedDict()
+        schema: Dict = {}
+        stats: Dict = {}
         total_docs = 0
 
         try:
@@ -263,7 +258,7 @@ class SchemaAnalyser:
             for doc in docs:
                 total_docs += 1
                 schema, stats = SchemaAnalyser.extract_schema_and_stats(doc, schema, stats)
-                if sample_size > 0 and total_docs >= sample_size:
+                if 0 < sample_size <= total_docs:
                     break
         except PyMongoOperationFailure as e:
             logger.error(
@@ -271,7 +266,7 @@ class SchemaAnalyser:
             )
             raise
 
-        final_stats_summary: OrderedDict = OrderedDict()
+        final_stats_summary: Dict = {}
         for key, field_stat_data in stats.items():
             values_set = field_stat_data.get("values", set())
             count = field_stat_data.get("count", 0)
@@ -322,9 +317,9 @@ class SchemaAnalyser:
 
             final_stats_summary[key] = processed
 
-        sorted_schema = OrderedDict(sorted(schema.items()))
-        sorted_stats = OrderedDict(sorted(final_stats_summary.items()))
-        return dict(sorted_schema), dict(sorted_stats)
+        sorted_schema = dict(sorted(schema.items()))
+        sorted_stats = dict(sorted(final_stats_summary.items()))
+        return sorted_schema, sorted_stats
 
     @staticmethod
     def schema_to_hierarchical(schema: Dict) -> Dict:
@@ -336,34 +331,3 @@ class SchemaAnalyser:
                 cur = cur.setdefault(p, {})
             cur[parts[-1]] = {"type": details.get("type")}
         return hierarchical
-
-    @staticmethod
-    def save_schema_to_json(schema: Dict, schema_file: Union[str, Path]) -> None:
-        hierarchical = SchemaAnalyser.schema_to_hierarchical(schema)
-        output_path = Path(schema_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with output_path.open("w", encoding="utf-8") as f:
-                json.dump(hierarchical, f, indent=4)
-            logger.info(f"Schema has been saved to {output_path}")
-            print(f"Schema has been saved to {output_path}")
-        except IOError as e:
-            logger.error(f"Failed to save schema to {output_path}: {e}")
-            print(f"Error: Could not save schema to {output_path}.")
-
-    @staticmethod
-    def save_table_to_csv(
-        headers: List[str], rows: List[List[Any]], csv_file: Union[str, Path]
-    ) -> None:
-        output_path = Path(csv_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with output_path.open(mode="w", newline="", encoding="utf-8") as file:
-                writer = csv.writer(file)
-                writer.writerow(headers)
-                writer.writerows(rows)
-            logger.info(f"Table has been saved to {output_path}")
-            print(f"Table has been saved to {output_path}")
-        except IOError as e:
-            logger.error(f"Failed to save CSV to {output_path}: {e}")
-            print(f"Error: Could not save table to {output_path}.")

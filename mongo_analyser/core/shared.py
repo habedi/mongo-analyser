@@ -1,9 +1,6 @@
-import argparse
 import logging
 from typing import Union
 from urllib.parse import quote_plus, urlparse, urlunparse
-
-from bson import Binary
 
 logger = logging.getLogger(__name__)
 
@@ -14,17 +11,6 @@ binary_type_map = {
     4: "binary<UUID>",
     5: "binary<MD5>",
 }
-
-
-def str2bool(v: Union[str, bool]) -> bool:
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ("yes", "true", "t", "y", "1"):
-        return True
-    elif v.lower() in ("no", "false", "f", "n", "0"):
-        return False
-    else:
-        raise argparse.ArgumentTypeError("Boolean value expected (like true/false or 1/0).")
 
 
 def build_mongo_uri(
@@ -43,14 +29,6 @@ def build_mongo_uri(
     if params:
         base_uri += f"?{params}"
     return base_uri
-
-
-def handle_binary_type_representation(
-    value: Binary, schema: dict, full_key: str, is_array: bool = False
-) -> None:
-    binary_subtype = value.subtype
-    subtype_str = binary_type_map.get(binary_subtype, f"binary<subtype {binary_subtype}>")
-    schema[full_key] = {"type": f"array<{subtype_str}>" if is_array else subtype_str}
 
 
 def redact_uri_password(uri: str) -> str:

@@ -4,15 +4,6 @@ from textual.widgets import DataTable, Label
 
 
 class CollectionStatsWidget(Vertical):
-    DEFAULT_CSS = """
-    CollectionStatsWidget {
-        height: auto;
-        border: round $primary-darken-1;
-        padding: 1;
-    }
-    CollectionStatsWidget > Label { margin-bottom: 1; text-style: bold; }
-    """
-
     def compose(self) -> ComposeResult:
         yield Label("Collection Statistics")
         yield DataTable(id="internal_collection_stats_table")

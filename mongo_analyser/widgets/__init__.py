@@ -1,4 +1,3 @@
-# mongo_analyser/widgets/__init__.py
 from .chat_input import ChatInput
 from .chat_message_list import ChatMessageList
 from .chat_message_widget import ChatMessageWidget

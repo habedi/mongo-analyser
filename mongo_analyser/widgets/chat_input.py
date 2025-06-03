@@ -1,22 +1,9 @@
-# mongo_analyser/widgets/chat_input.py
 from textual.app import ComposeResult
 from textual.css.query import NoMatches
 from textual.widgets import Input, Static
 
 
 class ChatInput(Static):
-    DEFAULT_CSS = """
-    ChatInput {
-        layout: horizontal;
-        height: auto;
-        width: 100%;
-    }
-    ChatInput > Input {
-        width: 1fr;
-        min-height: 3;
-    }
-    """
-
     def compose(self) -> ComposeResult:
         yield Input(placeholder="Type your message here...", id="chat_internal_input")
 

@@ -1,8 +1,11 @@
-from . import analyser, db, extractor, shared
+from . import config_manager, db, shared
+from .analyser import SchemaAnalyser
+from .extractor import DataExtractor
 
 __all__ = [
-    "analyser",
+    "DataExtractor",
+    "SchemaAnalyser",
+    "config_manager",
     "db",
-    "extractor",
     "shared",
 ]
