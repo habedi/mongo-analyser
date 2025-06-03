@@ -67,6 +67,9 @@ Run `mongo_analyser` in the terminal to launch the TUI.
 mongo_analyser
 ```
 
+<details>
+<summary>Examples</summary>
+
 The `mongo_analyser` command supports various options to connect to a MongoDB instance:
 
 ```bash
@@ -86,6 +89,7 @@ mongo_analyser --host my_host --username my_user --db my_database
 ```
 
 Run `mongo_analyser --help` to see all available options and their descriptions.
+</details>
 
 ---
 
