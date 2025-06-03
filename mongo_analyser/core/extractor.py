@@ -27,7 +27,6 @@ from . import shared
 
 logger = logging.getLogger(__name__)
 
-
 _BSON_UUID_SUBTYPE_STANDARD = 4
 _BSON_UUID_SUBTYPE_LEGACY_PYTHON = 3
 

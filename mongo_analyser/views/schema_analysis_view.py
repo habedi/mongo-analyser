@@ -30,7 +30,6 @@ from textual.worker import Worker, WorkerCancelled
 
 logger = logging.getLogger(__name__)
 
-
 NO_DB_CONNECTION_TEXT = Text.from_markup(
     "[#BF616A]MongoDB not connected. Please connect in the 'DB Connection' tab first.[/]"
 )

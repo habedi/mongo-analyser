@@ -1,6 +1,6 @@
 [project]
 name = "mongo-analyser"
-version = "0.2.1"
+version = "0.2.0b3"
 description = "Analyze and understand data stored in MongoDB from the command line"
 readme = "README.md"
 license = { text = "MIT" }
@@ -69,7 +69,7 @@ dev = [
 ]
 
 [project.scripts]
-mongo_analyser = "mongo_analyser.cli:main"
+mongo_analyser = "mongo_analyser.__main__:main"
 
 [project.urls]
 Repository = "https://github.com/habedi/mongo-analyser"
@@ -128,8 +128,7 @@ exclude = [
     ".bzr", ".direnv", ".eggs", ".git", ".git-rewrite", ".hg", ".mypy_cache",
     ".nox", ".pants.d", ".pytype", ".ruff_cache", ".svn", ".tox", ".venv",
     "__pypackages__", "_build", "buck-out", "build", "dist", "node_modules",
-    "venv",
-    "tests"
+    "venv", "tests"
 ]
 line-length = 100
 indent-width = 4

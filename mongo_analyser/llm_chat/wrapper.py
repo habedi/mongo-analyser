@@ -9,7 +9,6 @@ from .interface import LLMChat
 
 logger = logging.getLogger(__name__)
 
-
 MODEL_BLOCKLISTS = {
     "openai": [
         r"babbage.*",

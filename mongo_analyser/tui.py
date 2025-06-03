@@ -42,7 +42,6 @@ APP_LOGGER_NAME = "mongo_analyser"
 class MongoAnalyserApp(App[None]):
     TITLE = "Mongo Analyser TUI"
     CSS_PATH = "app.tcss"
-
     BINDINGS = [
         Binding("q", "quit_app_action", "Quit", show=True, priority=True),
         Binding("ctrl+t", "change_theme", "Change Theme", show=True),
@@ -58,6 +57,8 @@ class MongoAnalyserApp(App[None]):
     active_collection: reactive[Optional[str]] = reactive(None)
     current_schema_analysis_results: reactive[Optional[dict]] = reactive(None)
 
+    base_app_data_dir: Path
+
     def __init__(
         self,
         driver_class: Optional[Type[Driver]] = None,
@@ -65,8 +66,12 @@ class MongoAnalyserApp(App[None]):
         watch_css: bool = False,
         initial_mongo_uri: Optional[str] = None,
         initial_db_name: Optional[str] = None,
+        base_app_data_dir_override: Optional[Path] = None,
     ):
-        self.config_manager = ConfigManager()
+        self.config_manager = ConfigManager(base_app_data_dir_override=base_app_data_dir_override)
+
+        self.base_app_data_dir = self.config_manager.get_base_app_data_dir()
+
         configured_theme_name = self.config_manager.get_setting("theme", DEFAULT_THEME_NAME)
         if configured_theme_name not in VALID_THEMES:
             configured_theme_name = DEFAULT_THEME_NAME
@@ -80,10 +85,11 @@ class MongoAnalyserApp(App[None]):
         if logger.isEnabledFor(logging.DEBUG):
             safe_uri = core_db_manager.redact_uri_password(self._initial_mongo_uri or "N/A")
             logger.debug(
-                "MongoAnalyserApp initialized with initial URI: '%s', initial DB name: '%s', theme: '%s'",
+                "MongoAnalyserApp initialized. Initial URI: '%s', DB: '%s', Theme: '%s', Base App Data Dir: '%s'",
                 safe_uri,
                 self._initial_db_name,
                 self.theme,
+                self.base_app_data_dir,
             )
 
     def on_mount(self) -> None:
@@ -94,7 +100,6 @@ class MongoAnalyserApp(App[None]):
             )
         except NoMatches:
             logger.warning("Could not find SchemaAnalysisView or its sample size input on mount.")
-
         try:
             explorer_view = self.query_one(DataExplorerView)
             explorer_view.query_one("#data_explorer_sample_size_input", Input).value = str(
@@ -102,27 +107,21 @@ class MongoAnalyserApp(App[None]):
             )
         except NoMatches:
             logger.warning("Could not find DataExplorerView or its sample size input on mount.")
-
         try:
             chat_view = self.query_one(ChatView)
             llm_config_panel = chat_view.query_one("#chat_llm_config_panel")
-
             default_provider = self.config_manager.get_setting("llm_default_provider")
             default_temp = self.config_manager.get_setting("llm_default_temperature")
             default_hist = self.config_manager.get_setting("llm_default_max_history")
-
             provider_select = llm_config_panel.query_one("#llm_config_provider_select", Select)
             if provider_select.value != default_provider:
                 provider_select.value = default_provider
-
             temp_input = llm_config_panel.query_one("#llm_config_temperature", Input)
             if temp_input.value != str(default_temp):
                 temp_input.value = str(default_temp)
-
             hist_input = llm_config_panel.query_one("#llm_config_max_history", Input)
             if hist_input.value != str(default_hist):
                 hist_input.value = str(default_hist)
-
         except NoMatches:
             logger.warning(
                 "Could not find ChatView or LLMConfigPanel elements on mount for defaults."
@@ -188,7 +187,6 @@ class MongoAnalyserApp(App[None]):
         focused = self.focused
         text_to_copy: Optional[str] = None
         source_widget_type = "unknown"
-
         if isinstance(focused, Input):
             source_widget_type = "Input"
             text_to_copy = focused.selected_text if focused.selected_text else focused.value
@@ -206,12 +204,6 @@ class MongoAnalyserApp(App[None]):
                         text_to_copy = cell_renderable
                     else:
                         text_to_copy = str(cell_renderable)
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "DataTable copy: cell at %s gave '%s'",
-                            focused.cursor_coordinate,
-                            text_to_copy,
-                        )
                 except Exception as e:
                     if logger.isEnabledFor(logging.ERROR):
                         logger.error(
@@ -239,7 +231,6 @@ class MongoAnalyserApp(App[None]):
                 text_to_copy = widget_content.plain
             elif isinstance(widget_content, str):
                 text_to_copy = widget_content
-
         if text_to_copy is not None:
             if text_to_copy.strip():
                 try:
@@ -293,11 +284,9 @@ class MongoAnalyserApp(App[None]):
 
     def action_change_theme(self) -> None:
         current_theme_name = self.theme
-
         if not VALID_THEMES:
             logger.warning("VALID_THEMES is empty. Cannot change theme.")
             return
-
         try:
             current_index = VALID_THEMES.index(current_theme_name)
             next_index = (current_index + 1) % len(VALID_THEMES)
@@ -307,7 +296,6 @@ class MongoAnalyserApp(App[None]):
                 f"Current theme '{current_theme_name}' not in VALID_THEMES. Defaulting to first in list."
             )
             new_theme_name = VALID_THEMES[0] if VALID_THEMES else DEFAULT_THEME_NAME
-
         self.theme = new_theme_name
         if hasattr(self, "config_manager") and self.config_manager:
             self.config_manager.update_setting("theme", new_theme_name)
@@ -328,15 +316,15 @@ class MongoAnalyserApp(App[None]):
 def main_interactive_tui(
     initial_mongo_uri: Optional[str] = None,
     initial_db_name: Optional[str] = None,
+    base_app_data_dir_override: Optional[Path] = None,
 ):
     app_logger = logging.getLogger(APP_LOGGER_NAME)
 
-    startup_config_manager = ConfigManager()
+    startup_config_manager = ConfigManager(base_app_data_dir_override=base_app_data_dir_override)
 
     configured_log_level_str = startup_config_manager.get_setting(
         "default_log_level", "INFO"
     ).upper()
-
     valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "OFF"]
     if configured_log_level_str not in valid_log_levels:
         print(
@@ -347,7 +335,6 @@ def main_interactive_tui(
 
     for handler in list(app_logger.handlers):
         app_logger.removeHandler(handler)
-
     root_logger_for_cleanup = logging.getLogger()
     for handler in list(root_logger_for_cleanup.handlers):
         root_logger_for_cleanup.removeHandler(handler)
@@ -355,13 +342,10 @@ def main_interactive_tui(
     if configured_log_level_str == "OFF":
         logging.disable(logging.CRITICAL + 1)
         if os.getenv("MONGO_ANALYSER_CLI_DEBUG"):
-            print(
-                "CLI Debug: Application logging configured to OFF by app config.", file=sys.stderr
-            )
+            print("CLI Debug: Application logging configured to OFF.", file=sys.stderr)
     else:
         if logging.getLogger().manager.disable > 0:
             logging.disable(logging.NOTSET)
-
         app_logger.setLevel(configured_log_level_str)
         log_formatter = logging.Formatter(
             "%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s"
@@ -378,17 +362,10 @@ def main_interactive_tui(
                 file=sys.stderr,
             )
 
-        log_dir = Path(
-            os.getenv(
-                "MONGO_ANALYSER_LOG_DIR",
-                Path.home() / ".local" / "share" / APP_LOGGER_NAME / "logs",
-            )
-        )
+        log_dir = startup_config_manager.get_logs_dir()
         log_file = log_dir / f"{APP_LOGGER_NAME}_tui.log"
         file_handler_active = False
         try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-
             if not any(
                 isinstance(h, logging.FileHandler)
                 and getattr(h, "baseFilename", None) == str(log_file.resolve())
@@ -403,7 +380,7 @@ def main_interactive_tui(
                 file_handler_active = True
         except Exception as e_fh:
             print(
-                f"WARNING: Could not set up file logging to {log_file}: {e_fh}. App logs may only go to console (if configured).",
+                f"WARNING: Could not set up file logging to {log_file}: {e_fh}. App logs may only go to console.",
                 file=sys.stderr,
             )
 
@@ -421,7 +398,6 @@ def main_interactive_tui(
             ]
             for lib_logger_name in libraries_to_silence:
                 lib_logger = logging.getLogger(lib_logger_name)
-
                 if lib_logger.getEffectiveLevel() < logging.WARNING:
                     lib_logger.setLevel(logging.WARNING)
 
@@ -432,37 +408,41 @@ def main_interactive_tui(
                 )
             else:
                 app_logger.warning(
-                    f"File logging for '{APP_LOGGER_NAME}' to {log_file} FAILED. Check warnings above. Current app log level: {configured_log_level_str}"
+                    f"File logging for '{APP_LOGGER_NAME}' to {log_file} FAILED. Current app log level: {configured_log_level_str}"
                 )
             app_logger.info(
                 f"Console logging for '{APP_LOGGER_NAME}' initialized at level {configured_log_level_str}."
             )
 
-    if logger.isEnabledFor(logging.INFO):
-        logger.info(
+    module_tui_logger = logging.getLogger(__name__)
+    if module_tui_logger.isEnabledFor(logging.INFO):
+        module_tui_logger.info(
             f"--- Starting Mongo Analyser TUI (Log Level for '{APP_LOGGER_NAME}': {configured_log_level_str}) ---"
         )
 
     enable_devtools = os.getenv("MONGO_ANALYSER_DEBUG", "0") == "1"
-    if enable_devtools:
-        if configured_log_level_str != "OFF" and app_logger.isEnabledFor(logging.INFO):
-            app_logger.info("Textual Devtools are enabled via MONGO_ANALYSER_DEBUG=1.")
+    if (
+        enable_devtools
+        and configured_log_level_str != "OFF"
+        and app_logger.isEnabledFor(logging.INFO)
+    ):
+        app_logger.info("Textual Devtools are enabled via MONGO_ANALYSER_DEBUG=1.")
 
     try:
-        app = MongoAnalyserApp(initial_mongo_uri=initial_mongo_uri, initial_db_name=initial_db_name)
+        app = MongoAnalyserApp(
+            initial_mongo_uri=initial_mongo_uri,
+            initial_db_name=initial_db_name,
+            base_app_data_dir_override=base_app_data_dir_override,
+        )
         if enable_devtools and hasattr(app, "devtools"):
             try:
                 app.devtools = True
             except Exception as e_devtools:
                 if configured_log_level_str != "OFF" and app_logger.isEnabledFor(logging.WARNING):
-                    app_logger.warning(
-                        "Failed to enable Textual Devtools: %s. Is textual-dev properly installed and supported?",
-                        e_devtools,
-                    )
+                    app_logger.warning("Failed to enable Textual Devtools: %s.", e_devtools)
         app.run()
     except Exception as e_run:
         crit_msg = f"MongoAnalyserApp crashed during run: {e_run}"
-
         if configured_log_level_str != "OFF" and app_logger.isEnabledFor(logging.CRITICAL):
             app_logger.critical(crit_msg, exc_info=True)
         else:
@@ -475,17 +455,34 @@ def main_interactive_tui(
     finally:
         if configured_log_level_str != "OFF" and app_logger.isEnabledFor(logging.INFO):
             app_logger.info("--- Exiting Mongo Analyser TUI ---")
-
         core_db_manager.disconnect_all_mongo()
 
 
 if __name__ == "__main__":
     print(
-        "Running tui.py directly. For CLI arguments and proper execution, "
-        "use 'mongo_analyser' or 'python -m mongo_analyser.cli'."
+        "Running tui.py directly. For CLI arguments (including --app-data-dir) and proper execution, use 'mongo_analyser' or 'python -m mongo_analyser.cli'."
     )
+
+    base_dir_override_for_direct_run: Optional[Path] = None
+    custom_dir_env_var = os.getenv("MONGO_ANALYSER_HOME_DIR")
+    if custom_dir_env_var:
+        try:
+            resolved_dir = Path(custom_dir_env_var).expanduser().resolve()
+            resolved_dir.mkdir(parents=True, exist_ok=True)
+            base_dir_override_for_direct_run = resolved_dir
+            if os.getenv("MONGO_ANALYSER_CLI_DEBUG"):
+                print(
+                    f"Direct tui.py run: Using MONGO_ANALYSER_HOME_DIR for base data directory: {base_dir_override_for_direct_run}",
+                    file=sys.stderr,
+                )
+        except OSError as e:
+            print(
+                f"Direct tui.py run: ERROR creating custom base data directory '{custom_dir_env_var}': {e}. Using default.",
+                file=sys.stderr,
+            )
 
     main_interactive_tui(
         initial_mongo_uri=os.getenv("MONGO_URI"),
         initial_db_name=os.getenv("MONGO_DATABASE"),
+        base_app_data_dir_override=base_dir_override_for_direct_run,
     )
