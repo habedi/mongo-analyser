@@ -23,10 +23,11 @@ Analyze and understand data stored in MongoDB from the command line
 MongoDB makes it much easier to store data without a predefined schema.
 This flexibility allows developers to quickly experiment with different ideas and adapt the data model as
 needed, especially during the early stages of development.
-However, this advantage can lead to problems over time like the data can become unorganized, inconsistent, and difficult
+However, this advantage can lead to problems over time, like the data can become unorganized, inconsistent, and
+difficult
 to manage.
 Mongo Analyser is a TUI (text user interface) tool designed to help users with this issue by providing a way for users
-to understand the structure of their data stored in MongoDB.
+to understand the structure of their data stored in MongoDB collections.
 It allows users to quickly and easily see the core organization of their data, making it easier to
 make informed decisions about improving its structure and consistency.
 
