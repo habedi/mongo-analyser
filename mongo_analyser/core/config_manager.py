@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_DIR_NAME = "mongo_analyser"
 DEFAULT_CONFIG_FILE_NAME = "config.json"
 
-
 DEFAULT_THEME_NAME = "textual-dark"
 VALID_THEMES = [
     "textual-dark",
@@ -27,7 +26,7 @@ VALID_THEMES = [
 
 DEFAULT_SETTINGS = {
     "theme": DEFAULT_THEME_NAME,
-    "default_log_level": "INFO",
+    "default_log_level": "OFF",
     "schema_analysis_default_sample_size": 1000,
     "data_explorer_default_sample_size": 10,
     "llm_default_provider": "ollama",
@@ -80,6 +79,16 @@ class ConfigManager:
             )
             self._config["theme"] = DEFAULT_THEME_NAME
 
+        loaded_log_level = self._config.get("default_log_level")
+        valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "OFF"]
+        if loaded_log_level is not None and loaded_log_level.upper() not in valid_log_levels:
+            logger.warning(
+                f"Loaded default_log_level '{loaded_log_level}' is invalid. Resetting to default '{DEFAULT_SETTINGS['default_log_level']}'."
+            )
+            self._config["default_log_level"] = DEFAULT_SETTINGS["default_log_level"]
+        elif loaded_log_level is None:
+            self._config["default_log_level"] = DEFAULT_SETTINGS["default_log_level"]
+
     def save_config(self) -> bool:
         try:
             self._config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,7 +107,12 @@ class ConfigManager:
                 return default if default is not None else DEFAULT_THEME_NAME
             return theme_value
 
-        return self._config.get(key, default if default is not None else DEFAULT_SETTINGS.get(key))
+        if key in self._config:
+            return self._config[key]
+        elif key in DEFAULT_SETTINGS:
+            return DEFAULT_SETTINGS[key]
+        else:
+            return default
 
     def update_setting(self, key: str, value: Any) -> None:
         if key == "theme" and value not in VALID_THEMES:
@@ -107,12 +121,29 @@ class ConfigManager:
             )
             self._config[key] = DEFAULT_THEME_NAME
         else:
+            if key == "default_log_level":
+                valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "OFF"]
+                if isinstance(value, str) and value.upper() in valid_log_levels:
+                    self._config[key] = value.upper()
+                else:
+                    logger.warning(
+                        f"Attempted to set invalid default_log_level '{value}'. Using default '{DEFAULT_SETTINGS['default_log_level']}'."
+                    )
+                    self._config[key] = DEFAULT_SETTINGS["default_log_level"]
+                    return
+
             self._config[key] = value
 
     def get_all_settings(self) -> Dict[str, Any]:
         current_theme = self._config.get("theme")
         if current_theme not in VALID_THEMES:
             self._config["theme"] = DEFAULT_THEME_NAME
+
+        current_log_level = self._config.get("default_log_level")
+        valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "OFF"]
+        if current_log_level not in valid_log_levels:
+            self._config["default_log_level"] = DEFAULT_SETTINGS["default_log_level"]
+
         return self._config.copy()
 
     def update_settings(self, new_settings: Dict[str, Any]) -> None:
@@ -121,4 +152,16 @@ class ConfigManager:
                 f"Invalid theme '{new_settings['theme']}' in update_settings. Using default '{DEFAULT_THEME_NAME}'."
             )
             new_settings["theme"] = DEFAULT_THEME_NAME
+
+        if "default_log_level" in new_settings:
+            log_level_val = new_settings["default_log_level"]
+            valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "OFF"]
+            if not (isinstance(log_level_val, str) and log_level_val.upper() in valid_log_levels):
+                logger.warning(
+                    f"Invalid default_log_level '{log_level_val}' in update_settings. Using default."
+                )
+                new_settings["default_log_level"] = DEFAULT_SETTINGS["default_log_level"]
+            else:
+                new_settings["default_log_level"] = log_level_val.upper()
+
         self._config.update(new_settings)

@@ -4,6 +4,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from mongo_analyser.core import DataExtractor
+from mongo_analyser.dialogs import ErrorDialog
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
@@ -22,9 +24,6 @@ from textual.widgets import (
     Static,
 )
 from textual.worker import Worker, WorkerCancelled
-
-from mongo_analyser.core import DataExtractor
-from mongo_analyser.dialogs import ErrorDialog
 
 logger = logging.getLogger(__name__)
 

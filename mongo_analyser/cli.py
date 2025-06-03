@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mongo_analyser.core.shared import build_mongo_uri, redact_uri_password
 from mongo_analyser.tui import main_interactive_tui
+
 from . import __version__ as mongo_analyser_version
 
 
@@ -30,7 +31,7 @@ def main():
         type=str,
         default=os.getenv("MONGO_URI"),
         help="MongoDB connection URI (e.g., 'mongodb://user:pass@host:port/db?options'). "
-             "If provided, other connection parts (host, port, etc.) are often ignored by the URI parser.",
+        "If provided, other connection parts (host, port, etc.) are often ignored by the URI parser.",
     )
     conn_group.add_argument(
         "--host",
@@ -43,7 +44,7 @@ def main():
         "--port",
         dest="mongo_port",
         type=int,
-        default=int(os.getenv("MONGO_PORT", 27017)),  # Ensure int conversion for getenv
+        default=int(os.getenv("MONGO_PORT", 27017)),
         help="MongoDB port. Default: 27017 (if MONGO_PORT env var not set). Used if --uri is not provided.",
     )
     conn_group.add_argument(
@@ -59,7 +60,7 @@ def main():
         type=str,
         metavar="ENV_VAR_NAME",
         help="Environment variable name to read MongoDB password from. "
-             "Used if --username is provided and password is not in URI.",
+        "Used if --username is provided and password is not in URI.",
     )
     conn_group.add_argument(
         "--db",
@@ -84,11 +85,11 @@ def main():
             if args.mongo_password_env:
                 password_to_use = os.getenv(args.mongo_password_env)
                 if password_to_use is None:
-                    # Minimal feedback to stderr if password needs to be prompted
-                    print(
-                        f"Info: Environment variable '{args.mongo_password_env}' for MongoDB password not set.",
-                        file=sys.stderr
-                    )
+                    if os.getenv("MONGO_ANALYSER_CLI_DEBUG"):
+                        print(
+                            f"CLI Debug: Environment variable '{args.mongo_password_env}' for MongoDB password not set. Prompting.",
+                            file=sys.stderr,
+                        )
                     password_to_use = getpass.getpass(
                         f"Enter password for MongoDB user '{username_to_use}' on {host_to_use}:{port_to_use}: "
                     )
@@ -103,22 +104,20 @@ def main():
             username=username_to_use,
             password=password_to_use,
         )
-        # Example of a CLI-specific debug message if an env var is set
         if os.getenv("MONGO_ANALYSER_CLI_DEBUG"):
             print(
                 f"CLI Debug: Constructed MongoDB URI: {redact_uri_password(effective_mongo_uri)}",
-                file=sys.stderr
+                file=sys.stderr,
             )
     else:
         if os.getenv("MONGO_ANALYSER_CLI_DEBUG"):
             print(
                 f"CLI Debug: Using provided MongoDB URI: {redact_uri_password(effective_mongo_uri)}",
-                file=sys.stderr
+                file=sys.stderr,
             )
 
     try:
         main_interactive_tui(
-            log_level_override=None,  # Logging level is now handled by the TUI/config
             initial_mongo_uri=effective_mongo_uri,
             initial_db_name=initial_target_db_name,
         )
@@ -126,20 +125,25 @@ def main():
         print("\nCRITICAL ERROR: Mongo Analyser TUI unexpectedly quit.", file=sys.stderr)
         print(f"Exception: {type(e).__name__}: {e}", file=sys.stderr)
 
-        # Determine the default log file path as defined in tui.py's logging setup
+        app_logger_name_for_path = "mongo_analyser"
         default_log_dir = Path(
             os.getenv(
-                "MONGO_ANALYSER_LOG_DIR",  # Check if the same env var is used for custom log dir
-                Path.home() / ".local" / "share" / "mongo_analyser" / "logs",
+                "MONGO_ANALYSER_LOG_DIR",
+                Path.home() / ".local" / "share" / app_logger_name_for_path / "logs",
             )
         )
-        default_log_file = default_log_dir / "mongo_analyser_tui.log"
+        default_log_file = default_log_dir / f"{app_logger_name_for_path}_tui.log"
 
         print(
-            f"If application logging was enabled (via its internal configuration), "
+            f"If application logging was enabled (via its internal configuration or MONGO_ANALYSER_LOG_LEVEL env var), "
             f"check the log file for a detailed traceback, typically located at: {default_log_file}",
             file=sys.stderr,
         )
+
+        if os.getenv("MONGO_ANALYSER_CLI_DEBUG"):
+            import traceback
+
+            traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
 

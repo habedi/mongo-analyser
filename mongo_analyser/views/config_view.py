@@ -1,6 +1,13 @@
 import logging
 from typing import Any, Dict, Optional
 
+from mongo_analyser.core.config_manager import (
+    DEFAULT_SETTINGS,
+    DEFAULT_THEME_NAME,
+    VALID_THEMES,
+    ConfigManager,
+)
+from mongo_analyser.dialogs import ConfirmDialog, ErrorDialog
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -9,14 +16,6 @@ from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Button, Input, Label, Select, Static
-
-from mongo_analyser.core.config_manager import (
-    DEFAULT_SETTINGS,
-    DEFAULT_THEME_NAME,
-    VALID_THEMES,
-    ConfigManager,
-)
-from mongo_analyser.dialogs import ConfirmDialog, ErrorDialog
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,21 @@ class ConfigView(Container):
             yield Select(
                 [(name.replace("-", " ").title(), name) for name in VALID_THEMES],
                 id="config_theme_select",
-                value=DEFAULT_THEME_NAME,
+                value=DEFAULT_SETTINGS.get("theme", DEFAULT_THEME_NAME),
+            )
+
+            yield Label("Default Log Level:", classes="config_label")
+            yield Select(
+                [
+                    ("DEBUG", "DEBUG"),
+                    ("INFO", "INFO"),
+                    ("WARNING", "WARNING"),
+                    ("ERROR", "ERROR"),
+                    ("CRITICAL", "CRITICAL"),
+                    ("OFF", "OFF"),
+                ],
+                id="config_log_level_select",
+                value=DEFAULT_SETTINGS.get("default_log_level", "INFO"),
             )
 
             yield Label("Schema Analysis - Default Sample Size:", classes="config_label")
@@ -120,6 +133,7 @@ class ConfigView(Container):
             return
         try:
             theme_select = self.query_one("#config_theme_select", Select)
+
             theme_to_set = self._config_manager.get_setting("theme", DEFAULT_THEME_NAME)
 
             current_options = theme_select._options
@@ -136,15 +150,30 @@ class ConfigView(Container):
                 )
                 theme_select.value = DEFAULT_THEME_NAME
 
+            self.query_one(
+                "#config_log_level_select", Select
+            ).value = self._config_manager.get_setting(
+                "default_log_level", DEFAULT_SETTINGS.get("default_log_level", "INFO")
+            )
+
             self.query_one("#config_schema_sample_size_input", Input).value = str(
-                self._config_manager.get_setting("schema_analysis_default_sample_size")
+                self._config_manager.get_setting(
+                    "schema_analysis_default_sample_size",
+                    DEFAULT_SETTINGS["schema_analysis_default_sample_size"],
+                )
             )
             self.query_one("#config_explorer_sample_size_input", Input).value = str(
-                self._config_manager.get_setting("data_explorer_default_sample_size")
+                self._config_manager.get_setting(
+                    "data_explorer_default_sample_size",
+                    DEFAULT_SETTINGS["data_explorer_default_sample_size"],
+                )
             )
             self.query_one(
                 "#config_llm_default_provider_select", Select
-            ).value = self._config_manager.get_setting("llm_default_provider")
+            ).value = self._config_manager.get_setting(
+                "llm_default_provider", DEFAULT_SETTINGS["llm_default_provider"]
+            )
+
             self.query_one("#config_llm_model_ollama_input", Input).value = (
                 self._config_manager.get_setting("llm_default_model_ollama") or ""
             )
@@ -155,11 +184,16 @@ class ConfigView(Container):
                 self._config_manager.get_setting("llm_default_model_google") or ""
             )
             self.query_one("#config_llm_temperature_input", Input).value = str(
-                self._config_manager.get_setting("llm_default_temperature")
+                self._config_manager.get_setting(
+                    "llm_default_temperature", DEFAULT_SETTINGS["llm_default_temperature"]
+                )
             )
             self.query_one("#config_llm_max_history_input", Input).value = str(
-                self._config_manager.get_setting("llm_default_max_history")
+                self._config_manager.get_setting(
+                    "llm_default_max_history", DEFAULT_SETTINGS["llm_default_max_history"]
+                )
             )
+
             logger.info("ConfigView: Settings loaded into UI.")
         except NoMatches as e:
             logger.error(f"ConfigView: Error finding widget to load settings: {e}")
@@ -180,6 +214,14 @@ class ConfigView(Container):
                     f"Invalid theme '{settings['theme']}' collected from UI. Using default."
                 )
                 settings["theme"] = DEFAULT_THEME_NAME
+
+            log_level_select_value = self.query_one("#config_log_level_select", Select).value
+            settings["default_log_level"] = (
+                str(log_level_select_value)
+                if log_level_select_value != Select.BLANK
+                else DEFAULT_SETTINGS.get("default_log_level", "INFO")
+            )
+
             schema_sample_size_str = self.query_one("#config_schema_sample_size_input", Input).value
             try:
                 settings["schema_analysis_default_sample_size"] = int(schema_sample_size_str)
@@ -240,12 +282,11 @@ class ConfigView(Container):
         return settings
 
     def _notify_restart_may_be_needed(self):
-        """Helper to show the restart notification."""
         self.app.notify(
-            "Some default settings may require an application restart to take full effect.",
+            "Some settings (like default values or log level) will apply on next app start.",
             title="Restart Info",
             severity="information",
-            timeout=7  # Longer timeout for this important info
+            timeout=7,
         )
 
     @on(Button.Pressed, "#config_save_button")
@@ -255,7 +296,6 @@ class ConfigView(Container):
                 "[red]Error: ConfigManager not available for saving.[/]"
             )
             return
-
         settings_from_ui = self._collect_settings_from_ui()
         if not settings_from_ui:
             self.config_save_feedback = Text.from_markup(
@@ -264,20 +304,17 @@ class ConfigView(Container):
             return
 
         self._config_manager.update_settings(settings_from_ui)
-
         if self._config_manager.save_config():
             self.config_save_feedback = Text.from_markup(
                 "[green]Configuration saved successfully![/]"
             )
             self.app.notify("Configuration saved.", title="Save Success")
-
             if hasattr(self.app, "config_manager"):
                 new_theme_name = self._config_manager.get_setting("theme", DEFAULT_THEME_NAME)
                 if self.app.theme != new_theme_name:
                     self.app.theme = new_theme_name
                     logger.info(f"Theme changed to '{new_theme_name}' and applied from config.")
-
-            self._notify_restart_may_be_needed()  # <-- New notification
+            self._notify_restart_may_be_needed()
         else:
             self.config_save_feedback = Text.from_markup(
                 "[red]Error saving configuration. Check logs.[/]"
@@ -293,7 +330,6 @@ class ConfigView(Container):
                 "[red]Error: ConfigManager not available for reset.[/]"
             )
             return
-
         confirm = await self.app.push_screen_wait(
             ConfirmDialog(
                 "Reset Configuration",
@@ -309,13 +345,13 @@ class ConfigView(Container):
                 )
                 self.app.notify("Configuration reset to defaults.", title="Reset Success")
                 if hasattr(self.app, "config_manager"):
-                    default_theme_name = self._config_manager.get_setting("theme",
-                                                                          DEFAULT_THEME_NAME)
+                    default_theme_name = self._config_manager.get_setting(
+                        "theme", DEFAULT_THEME_NAME
+                    )
                     if self.app.theme != default_theme_name:
                         self.app.theme = default_theme_name
                         logger.info(f"Theme reset to default '{default_theme_name}' and applied.")
-
-                self._notify_restart_may_be_needed()  # <-- New notification
+                self._notify_restart_may_be_needed()
             else:
                 self.config_save_feedback = Text.from_markup(
                     "[red]Error saving defaults after reset. Check logs.[/]"
