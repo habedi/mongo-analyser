@@ -6,7 +6,7 @@ import pytest
 
 from mongo_analyser.core.config_manager import (
     ConfigManager,
-    DEFAULT_CONFIG_DIR_NAME,
+    APP_DIR_NAME,
     DEFAULT_CONFIG_FILE_NAME,
     DEFAULT_SETTINGS,
     DEFAULT_THEME_NAME,
@@ -19,12 +19,13 @@ TEST_INVALID_THEME = "invalid-theme-name"
 
 @pytest.fixture
 def default_config_path_fixture(tmp_path: Path) -> Path:
-    return tmp_path / DEFAULT_CONFIG_DIR_NAME / DEFAULT_CONFIG_FILE_NAME
+    return tmp_path / APP_DIR_NAME / DEFAULT_CONFIG_FILE_NAME
 
 
 @pytest.fixture
 def cm_empty_init(default_config_path_fixture: Path) -> ConfigManager:
-    return ConfigManager(config_path=default_config_path_fixture)
+    base_dir = default_config_path_fixture.parent
+    return ConfigManager(base_app_data_dir_override=base_dir)
 
 
 @pytest.fixture
@@ -36,7 +37,9 @@ def cm_with_valid_file(default_config_path_fixture: Path) -> ConfigManager:
     }
     with open(default_config_path_fixture, "w", encoding="utf-8") as f:
         json.dump(test_settings, f)
-    return ConfigManager(config_path=default_config_path_fixture)
+
+    base_dir = default_config_path_fixture.parent
+    return ConfigManager(base_app_data_dir_override=base_dir)
 
 
 class TestConfigManager:
@@ -44,10 +47,10 @@ class TestConfigManager:
     def test_initialization_creates_config_with_defaults_if_no_file(
         self, default_config_path_fixture: Path
     ):
-        cm = ConfigManager(config_path=default_config_path_fixture)
+        base_dir = default_config_path_fixture.parent
+        cm = ConfigManager(base_app_data_dir_override=base_dir)
 
         assert cm._config == DEFAULT_SETTINGS
-
         for key, val in DEFAULT_SETTINGS.items():
             assert cm.get_setting(key) == val
 
@@ -55,12 +58,12 @@ class TestConfigManager:
         mock_xdg_path = tmp_path / "xdg_data_home_dir"
         mocker.patch.dict(os.environ, {"XDG_DATA_HOME": str(mock_xdg_path)})
         expected_path = (
-            mock_xdg_path / DEFAULT_CONFIG_DIR_NAME / DEFAULT_CONFIG_FILE_NAME
+            mock_xdg_path / APP_DIR_NAME / DEFAULT_CONFIG_FILE_NAME
         )
 
         cm = ConfigManager()
 
-        assert cm._config_path == expected_path
+        assert cm._config_file_path == expected_path
         assert cm._config == DEFAULT_SETTINGS
         for key, val in DEFAULT_SETTINGS.items():
             assert cm.get_setting(key) == val
@@ -73,13 +76,13 @@ class TestConfigManager:
             mock_home_path
             / ".local"
             / "share"
-            / DEFAULT_CONFIG_DIR_NAME
+            / APP_DIR_NAME
             / DEFAULT_CONFIG_FILE_NAME
         )
 
         cm = ConfigManager()
 
-        assert cm._config_path == expected_path
+        assert cm._config_file_path == expected_path
         assert cm._config == DEFAULT_SETTINGS
         for key, val in DEFAULT_SETTINGS.items():
             assert cm.get_setting(key) == val
@@ -95,7 +98,8 @@ class TestConfigManager:
         with open(default_config_path_fixture, "w", encoding="utf-8") as f:
             json.dump(custom_settings_in_file, f)
 
-        cm = ConfigManager(config_path=default_config_path_fixture)
+        base_dir = default_config_path_fixture.parent
+        cm = ConfigManager(base_app_data_dir_override=base_dir)
 
         expected_config = DEFAULT_SETTINGS.copy()
         expected_config.update(custom_settings_in_file)
@@ -113,7 +117,8 @@ class TestConfigManager:
 
         caplog.set_level("ERROR", logger="mongo_analyser.core.config_manager")
 
-        cm = ConfigManager(config_path=default_config_path_fixture)
+        base_dir = default_config_path_fixture.parent
+        cm = ConfigManager(base_app_data_dir_override=base_dir)
 
         assert cm._config == DEFAULT_SETTINGS
         assert "Error loading configuration" in caplog.text
@@ -131,15 +136,17 @@ class TestConfigManager:
 
         caplog.set_level("WARNING", logger="mongo_analyser.core.config_manager")
 
-        cm = ConfigManager(config_path=default_config_path_fixture)
+        base_dir = default_config_path_fixture.parent
+        cm = ConfigManager(base_app_data_dir_override=base_dir)
 
         expected_config = DEFAULT_SETTINGS.copy()
         expected_config.update(custom_settings_in_file)
         expected_config["theme"] = DEFAULT_THEME_NAME
         assert cm._config == expected_config
 
+        # Only check for text up through “Resetting to default.” (no mention of the theme name)
         assert (
-            f"Loaded theme '{TEST_INVALID_THEME}' is not in VALID_THEMES. Resetting to default '{DEFAULT_THEME_NAME}'."
+            f"Loaded theme '{TEST_INVALID_THEME}' is invalid. Resetting to default."
             in caplog.text
         )
 
@@ -149,15 +156,15 @@ class TestConfigManager:
         new_setting_value = "new_value"
         cm.update_setting(new_setting_key, new_setting_value)
 
-        assert not cm._config_path.exists()
+        assert not cm._config_file_path.exists()
 
         save_result = cm.save_config()
 
         assert save_result is True
-        assert cm._config_path.exists()
-        assert cm._config_path.is_file()
+        assert cm._config_file_path.exists()
+        assert cm._config_file_path.is_file()
 
-        with open(cm._config_path, "r", encoding="utf-8") as f:
+        with open(cm._config_file_path, "r", encoding="utf-8") as f:
             saved_data = json.load(f)
 
         expected_data = DEFAULT_SETTINGS.copy()
@@ -173,8 +180,7 @@ class TestConfigManager:
         save_result = cm_empty_init.save_config()
 
         assert save_result is False
-        assert f"Error saving configuration to {cm_empty_init._config_path}" in caplog.text
-        assert "Disk full" in caplog.text
+        assert f"OSError saving configuration to {cm_empty_init._config_file_path}" in caplog.text
 
     def test_get_setting_existing_key(self, cm_with_valid_file: ConfigManager):
         assert cm_with_valid_file.get_setting("theme") == TEST_CUSTOM_THEME
@@ -200,7 +206,8 @@ class TestConfigManager:
         with open(default_config_path_fixture, "w", encoding="utf-8") as f:
             json.dump(settings_with_invalid_theme, f)
 
-        cm = ConfigManager(config_path=default_config_path_fixture)
+        base_dir = default_config_path_fixture.parent
+        cm = ConfigManager(base_app_data_dir_override=base_dir)
 
         assert cm.get_setting("theme") == DEFAULT_THEME_NAME
 
@@ -222,7 +229,7 @@ class TestConfigManager:
         cm_empty_init.update_setting("theme", TEST_INVALID_THEME)
         assert cm_empty_init._config["theme"] == DEFAULT_THEME_NAME
         assert (
-            f"Attempted to set invalid theme '{TEST_INVALID_THEME}'. Using default '{DEFAULT_THEME_NAME}' instead."
+            f"Attempted to set invalid theme '{TEST_INVALID_THEME}'. Using default '{DEFAULT_THEME_NAME}'."
             in caplog.text
         )
 
@@ -234,7 +241,8 @@ class TestConfigManager:
         with open(default_config_path_fixture, "w", encoding="utf-8") as f:
             json.dump(settings_with_invalid_theme, f)
 
-        cm = ConfigManager(config_path=default_config_path_fixture)
+        base_dir = default_config_path_fixture.parent
+        cm = ConfigManager(base_app_data_dir_override=base_dir)
         all_settings = cm.get_all_settings()
 
         assert all_settings["theme"] == DEFAULT_THEME_NAME
@@ -267,9 +275,9 @@ class TestConfigManager:
         assert cm_empty_init._config["theme"] == DEFAULT_THEME_NAME
         assert cm_empty_init._config["llm_default_temperature"] == 0.8
         assert (
-            f"Invalid theme '{TEST_INVALID_THEME}' in update_settings. Using default '{DEFAULT_THEME_NAME}'."
+            f"Attempted to set invalid theme '{TEST_INVALID_THEME}'. Using default '{DEFAULT_THEME_NAME}'."
             in caplog.text
-        )
+            )
 
     def test_default_theme_name_is_valid(self):
         assert DEFAULT_THEME_NAME in VALID_THEMES

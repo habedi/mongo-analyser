@@ -3,6 +3,16 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Type
 
+import mongo_analyser.core.db as core_db_manager
+from mongo_analyser.core import DataExtractor, SchemaAnalyser
+from mongo_analyser.dialogs import ErrorDialog
+from mongo_analyser.llm_chat import (
+    GoogleChat,
+    LLMChat,
+    OllamaChat,
+    OpenAIChat,
+)
+from mongo_analyser.widgets import ChatMessageList, ChatMessageWidget, LLMConfigPanel
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -17,17 +27,6 @@ from textual.widgets import (
     Static,
 )
 from textual.worker import Worker, WorkerCancelled, WorkerState
-
-import mongo_analyser.core.db as core_db_manager
-from mongo_analyser.core import DataExtractor, SchemaAnalyser
-from mongo_analyser.dialogs import ErrorDialog
-from mongo_analyser.llm_chat import (
-    GoogleChat,
-    LLMChat,
-    OllamaChat,
-    OpenAIChat,
-)
-from mongo_analyser.widgets import ChatMessageList, ChatMessageWidget, LLMConfigPanel
 
 logger = logging.getLogger(__name__)
 

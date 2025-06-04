@@ -8,11 +8,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import pytz
 from bson import Binary, Decimal128, Int64, ObjectId
-
-# Use integer literals for subtypes instead of potentially missing named constants
-from bson.binary import UuidRepresentation  # Keep this for UuidRepresentation enum
-
-# from bson.binary import UUID_SUBTYPE, UUID_LEGACY_SUBTYPE # Remove this problematic import
+from bson.binary import UuidRepresentation
 from pymongo import DESCENDING
 from pymongo.errors import (
     ConnectionFailure as PyMongoConnectionFailure,
@@ -31,7 +27,6 @@ from . import shared
 
 logger = logging.getLogger(__name__)
 
-# Define constants for subtypes if you prefer not to use magic numbers directly
 _BSON_UUID_SUBTYPE_STANDARD = 4
 _BSON_UUID_SUBTYPE_LEGACY_PYTHON = 3
 
@@ -56,11 +51,9 @@ class DataExtractor:
         elif isinstance(value, uuid.UUID):
             return "UUID"
         elif isinstance(value, Binary):
-            if (
-                value.subtype == _BSON_UUID_SUBTYPE_LEGACY_PYTHON
-            ):  # Use defined constant or literal 3
+            if value.subtype == _BSON_UUID_SUBTYPE_LEGACY_PYTHON:
                 return "binary<UUID (legacy)>"
-            if value.subtype == _BSON_UUID_SUBTYPE_STANDARD:  # Use defined constant or literal 4
+            if value.subtype == _BSON_UUID_SUBTYPE_STANDARD:
                 return "binary<UUID>"
             return shared.binary_type_map.get(value.subtype, f"binary<subtype {value.subtype}>")
         elif isinstance(value, list):

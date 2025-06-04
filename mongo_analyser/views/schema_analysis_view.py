@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from mongo_analyser.core import SchemaAnalyser
+from mongo_analyser.dialogs import ErrorDialog
 from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure
 from pymongo.errors import OperationFailure as PyMongoOperationFailure
 from rich.text import Text
@@ -26,11 +28,7 @@ from textual.widgets import (
 )
 from textual.worker import Worker, WorkerCancelled
 
-from mongo_analyser.core import SchemaAnalyser
-from mongo_analyser.dialogs import ErrorDialog
-
 logger = logging.getLogger(__name__)
-
 
 NO_DB_CONNECTION_TEXT = Text.from_markup(
     "[#BF616A]MongoDB not connected. Please connect in the 'DB Connection' tab first.[/]"
