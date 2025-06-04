@@ -42,6 +42,14 @@ collections to prevent data from becoming a *big mess* over time.
 - Automatically infers the schema of MongoDB collections
 - Extracts metadata and sample documents from collections
 
+> [!Note]
+> Mongo Analyser is still in its early stages of development.
+> Please report bugs and feature requests on the [GitHub Issues page](https://github.com/habedi/mongo-analyser/issues)
+> and [Discussions page](https://github.com/habedi/mongo-analyser/discussions).
+> Contributions are welcome! See the [Contributing Guide](CONTRIBUTING.md) for more details.
+
+### TUI Screenshots
+
 <div align="center">
   <picture>
     <img alt="Chat View" src="docs/screenshots/chat_view_1.png" height="100%" width="100%">
@@ -49,12 +57,37 @@ collections to prevent data from becoming a *big mess* over time.
 </div>
 
 <details>
-<summary>Show more screenshots</summary>
+<summary>Show more</summary>
 
 <div align="center">
   <picture>
-    <img alt="Chat View" src="docs/screenshots/chat_view_2.png" height="100%" width="100%">
+    <img alt="DB Connect View" src="docs/screenshots/db_connect_view_1.png" height="100%" width="100%">
   </picture>
+</div>
+
+<div align="center">
+    <picture>
+        <img alt="Schema Anlysis View" src="docs/screenshots/schema_analysis_view_1.png" height="100%" width="100%">
+    </picture>
+</div>
+
+<div align="center">
+    <picture>
+        <img alt="Data Explorer View" src="docs/screenshots/data_explorer_view_1.png" height="100%" width="100%">
+    </picture>
+</div>
+
+<div align="center">
+    <picture>
+        <img alt="Chat View with AI Assistant" src="docs/screenshots/chat_view_2.png" height="100%" width="100%">
+    </picture>
+</div>
+
+<div align="center">
+    <picture>
+        <img alt="Config View" src="docs/screenshots/config_view_1.png" height="100%" width="100%">
+    </picture>
+</div>
 
 </details>
 
