@@ -20,19 +20,19 @@ Analyze and understand data stored in MongoDB from the command line
 
 ---
 
-Mongo Analyser is a TUI (text user interface) application designed to help understand the structure of their data stored
-in MongoDB.
-It allows users to quickly and easily see the core organization of their data, making it easier to make informed
-decisions about improving its structure and consistency.
+Mongo Analyser is a TUI (text user interface) application that helps users get a sense of the structure of their data in
+MongoDB.
+It allows users to extract the schema, metadata, and sample data from MongoDB collections, and
+chat with an AI assistant to explore and understand the data better.
 
-MongoDB makes it much easier to store data without a predefined schema.
+**Why Mongo Analyser?**
+
+A NoSQL database like MongoDB makes it much easier to store data without a predefined schema.
 This flexibility allows developers to quickly experiment with different ideas and adapt the data model as
 needed, especially during the early stages of development.
-However, this advantage can lead to problems over time, like the data can become unorganized, inconsistent, and
-difficult to manage.
-This is where a tool like Mongo Analyser comes in handy.
-It provides a user-friendly interface to explore and understand the structure of your MongoDB collections,
-making it easier to improve the organization and consistency of your data.
+However, this can lead to the data becoming unorganized, inconsistent, and difficult to manage over time.
+Mongo Analyser aims to help users with this problem by helping users understand the structure of their MongoDB
+collections.
 
 ### Features
 
