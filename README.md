@@ -22,31 +22,41 @@ Analyze and understand data stored in MongoDB from the command line
 
 Mongo Analyser is a TUI (text user interface) application that helps users get a sense of the structure of their data in
 MongoDB.
-It allows users to extract the schema, metadata, and sample data from MongoDB collections, and
-chat with an AI assistant to explore and understand the data better.
+It allows users to extract the schema, metadata, and sample documents from MongoDB collections, and
+chat with an AI assistant to explore and understand their data better.
 
 **Why Mongo Analyser?**
 
 A NoSQL database like MongoDB makes it much easier to store data without a predefined schema.
 This flexibility allows developers to quickly experiment with different ideas and adapt the data model as
-needed, especially during the early stages of development.
+needed, especially during the early stages of development of a project.
 However, this can lead to the data becoming unorganized, inconsistent, and difficult to manage over time.
-Mongo Analyser aims to help users with this problem by helping users understand the structure of their MongoDB
-collections.
+Mongo Analyser aims to help with this problem by making it easier for users to understand the structure of their MongoDB
+collections to prevent data from becoming a *big mess* over time.
 
 ### Features
 
-- Provides a user-friendly TUI with integrated AI assistance
+- Provides a user-friendly TUI with integrated AI assistant
 - Works with MongoDB Atlas as well as self-hosted MongoDB instances
-- Works with models from Ollama, OpenAI, and Google
+- Works with a wide range of AI models from Ollama, OpenAI, and Google
 - Automatically infers the schema of MongoDB collections
-- Identifies the types of fields in the collection
+- Extracts metadata and sample documents from collections
 
 <div align="center">
   <picture>
     <img alt="Chat View" src="docs/screenshots/chat_view_1.png" height="100%" width="100%">
   </picture>
 </div>
+
+<details>
+<summary>Show more screenshots</summary>
+
+<div align="center">
+  <picture>
+    <img alt="Chat View" src="docs/screenshots/chat_view_2.png" height="100%" width="100%">
+  </picture>
+
+</details>
 
 ---
 
@@ -71,12 +81,12 @@ mongo_analyser
 ```
 
 <details>
-<summary>Examples</summary>
+<summary>MongoDB Connection Options</summary>
 
 The `mongo_analyser` command supports various options to connect to a MongoDB instance:
 
 ```bash
-# Connect to a local MongoDB instance with a specific database
+# Connect to a local MongoDB instance
 mongo_analyser --host localhost --port 27017 --db my_database
 ```
 
@@ -87,7 +97,7 @@ mongo_analyser --uri "mongodb://user:${MONGO_PASSWORD}@my_host:27017/my_db"
 ```
 
 ```bash
-# Or give connection details directly (password will be prompted)
+# Connect to a MongoDB Atlas instance with authentication promptted interactively
 mongo_analyser --host my_host --username my_user --db my_database
 ```
 
@@ -96,31 +106,41 @@ Run `mongo_analyser --help` to see all available options and their descriptions.
 
 ---
 
+### Documentation
+
 <details>
-<summary><strong>Documentation</strong></summary>
+<summary>Show</summary>
 
 #### Environment Variables
 
-You can set environment variables to configure Mongo Analyser's connection to MongoDB and LLM providers.
+Mongo Analyser can be configured using environment variables to set up the connection to MongoDB and LLM providers.
+
+##### MongoDB Connection
 
 * `MONGO_URI`: MongoDB connection URI (e.g., `mongodb://user:password@host:port/database`)
 * `MONGO_HOST`: MongoDB host (default: `localhost`)
 * `MONGO_PORT`: MongoDB port (default: `27017`)
 * `MONGO_USERNAME`: MongoDB username
 * `MONGO_DATABASE`: MongoDB database name
+
+##### AI Model Providers
+
+* **OpenAI**
+    * `OPENAI_API_KEY`: OpenAI API key for accessing OpenAI models
+* **Google**
+    * `GOOGLE_API_KEY`: Google API key for accessing Google models
+* **Ollama**
+    * `OLLAMA_HOST`: Ollama host URL (default: `http://localhost:11434`)
+    * `OLLAMA_CONTEXT_LENGTH`: Context length for Ollama models (default: `2048`)
+
+##### Misc Options
+
 * `MONGO_ANALYSER_HOME_DIR`: Directory to store Mongo Analyser data (default: `~/.local/shared/mongo_analyser`)
-* `MONGO_ANALYSER_DEBUG=1` (to enable Textual devtools for debugging)
-
-For LLM providers, you can set API keys:
-
-* `OPENAI_API_KEY`: OpenAI API key for accessing OpenAI models
-* `GOOGLE_API_KEY`: Google API key for accessing Google models
-* `OLLAMA_HOST`: Ollama host URL (default: `http://localhost:11434`)
-* `OLLAMA_CONTEXT_LENGTH`: Context length for Ollama models (default: `2048`)
 
 #### Supported Field Types
 
-Mongo Analyser supports the following field types when inferring the schema of a MongoDB collection:
+When inferring the schema of a MongoDB collection, Mongo Analyser supports a variety of field types.
+The table below summarizes the supported field types, their Python equivalents, and their MongoDB equivalents.
 
 | Field Type         | Python Equivalent | MongoDB Equivalent   | Comments                                                                                                                                      |
 |--------------------|-------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
