@@ -178,7 +178,7 @@ equivalents:
 
 Check [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
 
-### Logo Credit
+### Logo
 
 Leaf logo courtesy of [SVG Repo](https://www.svgrepo.com/svg/258591/clover-leaf).
 
