@@ -1,72 +1,57 @@
-/* mongo_analyser/app.tcss */
-
-/* General App Styles */
 Screen {
     background: $surface-darken-1;
     color: $text;
     overflow: hidden auto;
 }
-
 Header {
     dock: top;
     height: 1;
-    background: $primary-background-darken-1;
-    color: $text;
+    background: #2d2d2d;
+    color: #d4d4d4;
     padding: 0 1;
     text-style: bold;
 }
-
 Footer {
     dock: bottom;
     height: 1;
-    background: $primary-background-darken-2;
-    color: $text;
+    background: #252526;
+    color: #d4d4d4;
     padding: 0 1;
 }
-
 Tabs {
     dock: top;
-    background: $primary-background;
+    background: #333333;
     padding: 0 1;
 }
-
-/* Active Tab Styling */
+Tabs Tab {
+    background: #333333;
+    color: #d4d4d4;
+}
 Tabs Tab.-active {
-    background: $accent-darken-1;
-    color: $text-accent;
+    background: #007acc;
+    color: #ffffff;
     text-style: bold;
 }
-Tabs Tab {
-    background: $primary-background;
-    color: $text;
-}
-
-/* Styles for the main view containers within ContentSwitcher */
 ContentSwitcher > #view_chat_content,
 ContentSwitcher > #view_db_connection_content,
 ContentSwitcher > #view_schema_analysis_content,
 ContentSwitcher > #view_data_explorer_content,
-ContentSwitcher > #view_config_content { /* Added config view */
-    padding: 1; /* Base padding for all views */
+ContentSwitcher > #view_config_content {
+    padding: 1;
     overflow: auto;
-    border: round $background-lighten-2; /* Subtle border for view delineation */
+    border: round $background-lighten-2;
 }
-
-/* Enhanced Focus and Hover Styles */
 Input:focus,
 TextArea:focus {
-    border: tall $accent; /* More prominent focus border for Input and TextArea */
+    border: tall $accent;
 }
-
 Select:focus {
-    /* No special border for Select on focus, it will use its default */
 }
-
 Button:focus {
     border: round $accent;
 }
 Button:hover {
-    background: $primary-darken-1; /* General button hover */
+    background: $primary-darken-1;
 }
 Button.-primary:hover {
     background: $success-darken-1;
@@ -74,21 +59,16 @@ Button.-primary:hover {
 Button.-error:hover {
     background: $error-darken-1;
 }
-Button.-warning:hover { /* Added warning button hover */
+Button.-warning:hover {
     background: $warning-darken-1;
 }
-
-
-/* Base style for LoadingIndicator */
 LoadingIndicator {
-    display: none; /* Hide by default */
+    display: none;
     width: 100%;
     height: auto;
-    margin-top: 1; /* Default spacing if shown */
+    margin-top: 1;
     color: $secondary;
 }
-
-/* Common Panel Titles */
 .panel_title {
     padding: 1 0;
     text-style: bold underline;
@@ -104,8 +84,6 @@ LoadingIndicator {
     color: $secondary-darken-1;
     margin-bottom: 1;
 }
-
-/* ChatView Specific Styles */
 #view_chat_content #chat_interface_horizontal_layout { layout: horizontal; height: 100%; width: 100%; }
 #view_chat_content .chat_column_main { width: 2fr; height: 100%; padding-right: 1; }
 #view_chat_content .chat_column_sidebar { width: 1fr; min-width: 35; max-width: 50; height: 100%; }
@@ -131,8 +109,6 @@ LoadingIndicator {
     width: 1fr;
     margin: 1;
 }
-
-/* DB Connection View */
 #view_db_connection_content > * {
     margin-top: 1;
 }
@@ -146,9 +122,6 @@ LoadingIndicator {
 #view_db_connection_content #mongo_connection_status_label { padding: 1; width: 100%; text-align: center; border: round $background-lighten-2; height: auto; margin: 1; }
 #view_db_connection_content .collections_list_container { border: round $primary-darken-1; height: 12; padding:0; background: $primary-background-darken-3; overflow: auto; margin: 1; }
 #view_db_connection_content #indexes_data_table { border: round $primary-darken-1; height: 12; padding:0; background: $primary-background-darken-3; overflow: auto; margin: 1; }
-
-
-/* Schema Analysis View */
 #view_schema_analysis_content > * {
     margin-top: 1;
 }
@@ -166,9 +139,6 @@ LoadingIndicator {
 #view_schema_analysis_content .copy_button_container Button { width: 1fr; margin: 0 1; }
 #view_schema_analysis_content #schema_copy_feedback_label { width: 100%; text-align: center; height: 1; color: $success; }
 #view_schema_analysis_content #schema_status_label { height: auto; }
-
-
-/* Styles for Custom Widgets */
 ChatMessageWidget {
     width: 100%;
     margin-bottom: 1;
@@ -198,37 +168,24 @@ ChatMessageWidget > Markdown.message-content-box {
     min-height: 3;
     margin-top: 0;
 }
-
-/* CollectionStatsWidget */
 CollectionStatsWidget { height: auto; border: round $primary-darken-1; padding: 1; }
 CollectionStatsWidget > Label { margin-bottom: 1; text-style: bold; }
-
-/* ChatMessageList (container for ChatMessageWidgets) */
 ChatMessageList { width: 100%; }
-
-/* LLMConfigPanel */
 LLMConfigPanel { border: round $primary-darken-1; background: $primary-background-darken-3; padding: 0 1; overflow-y: auto; }
 LLMConfigPanel > Label { margin-top: 1; }
 LLMConfigPanel > Input, LLMConfigPanel > Select { width: 100%; }
 LLMConfigPanel > Button { width: 100%; margin-top: 1; }
-
-/* ChatInput (Container for the chat message Input widget) */
 ChatInput { layout: horizontal; height: auto; width: 100%; }
-
-/* Dialog Styles */
 ConfirmDialog { align: center middle; }
 ConfirmDialog > Vertical { background: $panel; width: auto; min-width: 40; max-width: 80%; height: auto; padding: 2; border: thick $primary; }
 ConfirmDialog Label { margin-bottom: 1; }
 ConfirmDialog Horizontal { align: right middle; margin-top: 1; height: auto;}
 ConfirmDialog Button { margin-left: 1; }
-
 ErrorDialog { align: center middle; }
 ErrorDialog > Vertical { background: $panel-darken-2; color: $text; width: auto; min-width: 40; max-width: 80%; height: auto; padding: 1 2; border: thick $error; }
-ErrorDialog Static { margin-bottom: 1; text-align: center; } /* Might be unused if Label is preferred */
+ErrorDialog Static { margin-bottom: 1; text-align: center; }
 ErrorDialog Label { margin-top:1; margin-bottom: 1; }
 ErrorDialog Center { margin-top: 1; height: auto; }
-
-/* Data Explorer View Styles */
 #view_data_explorer_content > * {
     margin-top: 1;
 }
@@ -250,31 +207,26 @@ ErrorDialog Center { margin-top: 1; height: auto; }
 #view_data_explorer_content .action_button_group Button:last-child { margin-right: 0; }
 #view_data_explorer_content #save_sample_docs_button { width: 100%; margin: 1; }
 #view_data_explorer_content #fetch_documents_button { width: 100%; margin: 1; }
-
-/* Config View Styles */
 #view_config_content #config_view_scroll_panel {
     padding: 1;
-    /* spacing: 1; */ /* This was the invalid property */
 }
 #view_config_content Label.config_label {
     margin-top: 1;
-    margin-bottom: 0; /* Reduce bottom margin if Select/Input has top margin */
+    margin-bottom: 0;
     text-style: bold;
 }
 #view_config_content Select,
 #view_config_content Input {
     width: 100%;
-    margin-bottom: 1; /* Space after each input/select */
+    margin-bottom: 1;
 }
 #view_config_content Button {
     width: 100%;
-    margin-top: 1; /* Space above buttons */
+    margin-top: 1;
 }
 #view_config_content #config_save_feedback_label {
     width: 100%;
     text-align: center;
     height: 1;
     margin-top: 1;
-    /* Colors will be set dynamically (green for success, red for error) */
 }
-
