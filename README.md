@@ -22,7 +22,7 @@ Analyze and understand data stored in MongoDB from the command line
 
 Mongo Analyser is a TUI (text user interface) application that helps users get a sense of the structure of their data in
 MongoDB.
-It allows users to extract the schema, metadata, and sample documents from MongoDB collections, and
+It allows users to extract the schema, metadata, and sample documents from MongoDB collections and
 chat with an AI assistant to explore and understand their data better.
 
 **Why Mongo Analyser?**
@@ -36,105 +36,88 @@ collections to prevent data from becoming a *big mess* over time.
 
 ### Features
 
-- Provides a user-friendly TUI with integrated AI assistant
-- Works with MongoDB Atlas as well as self-hosted MongoDB instances
-- Works with a wide range of AI models from Ollama, OpenAI, and Google
-- Automatically infers the schema of MongoDB collections
-- Extracts metadata and sample documents from collections
+* User-friendly TUI with built-in AI assistant
+* Supports MongoDB Atlas and self-hosted MongoDB instances
+* Compatible with AI models from Ollama, OpenAI, and Google
+* Automatic schema inference from MongoDB collections
+* Data and metadata extraction from collections
 
 > [!Note]
 > Mongo Analyser is still in its early stages of development.
-> Please report bugs and feature requests on the [GitHub Issues page](https://github.com/habedi/mongo-analyser/issues)
-> and [Discussions page](https://github.com/habedi/mongo-analyser/discussions).
-> Contributions are welcome! See the [Contributing Guide](CONTRIBUTING.md) for more details.
+> For bugs, feature requests, or discussions,
+> please use the [GitHub Issues](https://github.com/habedi/mongo-analyser/issues) and
+> [Discussions](https://github.com/habedi/mongo-analyser/discussions) pages.
+> Contributions are very welcome!
+> See [Contributing Guide](CONTRIBUTING.md) for more details.
 
 ### TUI Screenshots
 
 <div align="center">
-  <picture>
-    <img alt="Chat View" src="docs/screenshots/chat_view_1.png" height="100%" width="100%">
-  </picture>
+  <img alt="Chat View" src="docs/screenshots/chat_view_1.png" width="100%">
 </div>
 
 <details>
-<summary>Show more</summary>
+<summary>More screenshots</summary>
 
 <div align="center">
-  <picture>
-    <img alt="DB Connect View" src="docs/screenshots/db_connect_view_1.png" height="100%" width="100%">
-  </picture>
-</div>
-
-<div align="center">
-    <picture>
-        <img alt="Schema Anlysis View" src="docs/screenshots/schema_analysis_view_1.png" height="100%" width="100%">
-    </picture>
-</div>
-
-<div align="center">
-    <picture>
-        <img alt="Data Explorer View" src="docs/screenshots/data_explorer_view_1.png" height="100%" width="100%">
-    </picture>
-</div>
-
-<div align="center">
-    <picture>
-        <img alt="Chat View with AI Assistant" src="docs/screenshots/chat_view_2.png" height="100%" width="100%">
-    </picture>
-</div>
-
-<div align="center">
-    <picture>
-        <img alt="Config View" src="docs/screenshots/config_view_1.png" height="100%" width="100%">
-    </picture>
+  <img alt="DB Connect View" src="docs/screenshots/db_connect_view_1.png" width="100%">
+  <img alt="Schema Analysis View" src="docs/screenshots/schema_analysis_view_1.png" width="100%">
+  <img alt="Data Explorer View" src="docs/screenshots/data_explorer_view_1.png" width="100%">
+  <img alt="Chat View with AI Assistant" src="docs/screenshots/chat_view_2.png" width="100%">
+  <img alt="Config View" src="docs/screenshots/config_view_1.png" width="100%">
 </div>
 
 </details>
 
----
-
 ### Installation
 
-You can install Mongo Analyser using `pipx` or `uv`:
+Install Mongo Analyser using `pipx` or `uv`:
 
 ```bash
 pipx install mongo-analyser
-````
+```
 
 ```bash
 uv tool install mongo-analyser
 ```
 
-### Usage
+### Quick Start
 
-Run `mongo_analyser` in the terminal to launch the TUI.
+Launch Mongo Analyser by running:
 
 ```bash
 mongo_analyser
 ```
 
 <details>
-<summary>MongoDB Connection Options</summary>
+<summary>More Advanced Usage</summary>
 
-The `mongo_analyser` command supports various options to connect to a MongoDB instance:
+You can configure Mongo Analyser with additional options:
+
+**Connect with environment variables**
 
 ```bash
-# Connect to a local MongoDB instance
-mongo_analyser --host localhost --port 27017 --db my_database
+export OLLAMA_HOST="http://localhost:11434"
+export GOOGLE_API_KEY="your_google_api_key"
+export OPENAI_API_KEY="your_openai_api_key"
+mongo_analyser --db my_database
 ```
 
+**Connect via MongoDB URI**
+
 ```bash
-# Connect using a full MongoDB URI (with password from environment variable)
 export MONGO_PASSWORD="your_secure_password"
-mongo_analyser --uri "mongodb://user:${MONGO_PASSWORD}@my_host:27017/my_db"
+mongo_analyser --uri "mongodb://user:${MONGO_PASSWORD}@host:27017/db"
 ```
+
+**Connect by prompting for password**
 
 ```bash
-# Connect to a MongoDB Atlas instance with authentication promptted interactively
-mongo_analyser --host my_host --username my_user --db my_database
+mongo_analyser --host my_host --port 27017 --username my_user --db my_database
 ```
 
-Run `mongo_analyser --help` to see all available options and their descriptions.
+Use `mongo_analyser --help` for a full list of commands.
+
 </details>
 
 ---
@@ -144,36 +127,33 @@ Run `mongo_analyser --help` to see all available options and their descriptions.
 <details>
 <summary>Show</summary>
 
-#### Environment Variables
+**MongoDB Connection**
 
-Mongo Analyser can be configured using environment variables to set up the connection to MongoDB and LLM providers.
+* `MONGO_URI`
+* `MONGO_HOST` (default: `localhost`)
+* `MONGO_PORT` (default: `27017`)
+* `MONGO_USERNAME`
+* `MONGO_DATABASE`
 
-##### MongoDB Connection
+**AI Providers**
 
-* `MONGO_URI`: MongoDB connection URI (e.g., `mongodb://user:password@host:port/database`)
-* `MONGO_HOST`: MongoDB host (default: `localhost`)
-* `MONGO_PORT`: MongoDB port (default: `27017`)
-* `MONGO_USERNAME`: MongoDB username
-* `MONGO_DATABASE`: MongoDB database name
+* `OPENAI_API_KEY`
+* `GOOGLE_API_KEY`
+* `OLLAMA_HOST` (default: `http://localhost:11434`)
+* `OLLAMA_CONTEXT_LENGTH` (default: `2048`)
 
-##### AI Model Providers
+**Misc**
 
-* **OpenAI**
-    * `OPENAI_API_KEY`: OpenAI API key for accessing OpenAI models
-* **Google**
-    * `GOOGLE_API_KEY`: Google API key for accessing Google models
-* **Ollama**
-    * `OLLAMA_HOST`: Ollama host URL (default: `http://localhost:11434`)
-    * `OLLAMA_CONTEXT_LENGTH`: Context length for Ollama models (default: `2048`)
+* `MONGO_ANALYSER_HOME_DIR`: Path to the Mongo Analyser home directory, where configuration and data files are stored.
+  This can be set to a custom path if you want to change the default location.
+  If not set, it defaults to `~/.local/shared/mongo_analyser`.
 
-##### Misc Options
+**Supported Field Types**
 
-* `MONGO_ANALYSER_HOME_DIR`: Directory to store Mongo Analyser data (default: `~/.local/shared/mongo_analyser`)
-
-#### Supported Field Types
-
-When inferring the schema of a MongoDB collection, Mongo Analyser supports a variety of field types.
-The table below summarizes the supported field types, their Python equivalents, and their MongoDB equivalents.
+Mongo Analyser can infer the schema of a MongoDB collection and show it as a key-value structure in JSON format.
+The keys are the field names, and the values are the types of the fields.
+The following table shows the supported field types in Mongo Analyser, their Python equivalents, and their MongoDB
+equivalents:
 
 | Field Type         | Python Equivalent | MongoDB Equivalent   | Comments                                                                                                                                      |
 |--------------------|-------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
@@ -196,12 +176,12 @@ The table below summarizes the supported field types, their Python equivalents, 
 
 ### Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to make a contribution.
+Check [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
 
-### Logo
+### Logo Credit
 
-The leaf logo is originally from [SVG Repo](https://www.svgrepo.com/svg/258591/clover-leaf).
+Leaf logo courtesy of [SVG Repo](https://www.svgrepo.com/svg/258591/clover-leaf).
 
 ### License
 
-Mongo Analyser is licensed under the [MIT License](LICENSE).
+Mongo Analyser is available under the [MIT License](LICENSE).
