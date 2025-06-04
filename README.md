@@ -57,7 +57,7 @@ collections to prevent data from becoming a *big mess* over time.
 </div>
 
 <details>
-<summary>More screenshots</summary>
+<summary>Show more screenshots</summary>
 
 <div align="center">
   <img alt="DB Connect View" src="docs/screenshots/db_connect_view_1.png" width="100%">
@@ -90,7 +90,7 @@ mongo_analyser
 ```
 
 <details>
-<summary>More Advanced Usage</summary>
+<summary>Show more advanced usages</summary>
 
 You can configure Mongo Analyser with additional options:
 
