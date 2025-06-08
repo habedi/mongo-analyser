@@ -40,6 +40,7 @@ ContentSwitcher > #view_config_content {
     padding: 1;
     overflow: auto;
     border: round $background-lighten-2;
+    border-title-align: center;
 }
 Input:focus,
 TextArea:focus {
@@ -162,7 +163,8 @@ ChatMessageWidget .role_assistant {
 ChatMessageWidget .role_system { color: $warning; text-style: bold; }
 ChatMessageWidget > Markdown.message-content-box {
     background: #2E3440;
-    border: round #88C0D0;
+    border: round #888;
+    border-title-align: center;
     padding: 1 2;
     width: 100%;
     min-height: 3;

@@ -34,7 +34,7 @@ class DBConnectionView(Container):
 
     def compose(self) -> ComposeResult:
         yield Label("MongoDB URI:")
-        yield Input(id="mongo_uri_input", value="mongodb://localhost:27017/")
+        yield Input(id="mongo_uri_input", placeholder="mongodb://[username:password@]host[:port][/database]")
         yield Label("Database Name (optional, overrides URI's DB if specified):")
         yield Input(id="mongo_db_name_input", placeholder="my_database")
         yield Button("Connect to DB", variant="primary", id="connect_mongo_button")
