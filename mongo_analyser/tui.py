@@ -152,7 +152,7 @@ class MongoAnalyserApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Tabs(
-            Tab("DB Connection", id="tab_db_connection"),
+            Tab("DB Connection • Schema Analysis • Data Explorer • Chat • Config", id="tab_db_connection"),
             Tab("Schema Analysis", id="tab_schema_analysis"),
             Tab("Data Explorer", id="tab_data_explorer"),
             Tab("Chat", id="tab_chat"),
