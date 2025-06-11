@@ -21,7 +21,7 @@ TMP_FILES  = *.csv *.json *.json.gz .*_history.txt
 
 .DEFAULT_GOAL := help
 
-.PHONY: help
+.PHONY: help install setup test lint format typecheck precommit precommit-install docs build publish clean
 help: ## Show help for all targets
 	@awk 'BEGIN {FS = ":.*?## "}; /^[a-zA-Z0-9_-]+:.*## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' Makefile
 
